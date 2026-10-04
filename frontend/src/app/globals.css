@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-dev-dark: #121212;
+  --color-neo-light: rgba(255, 255, 255, 0.05);
+  --color-neo-dark: rgba(0, 0, 0, 0.5);
+}
+
+@layer base {
+  body {
+    background-color: var(--color-dev-dark);
+    color: white;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+}
+
+@layer components {
+  .neo-box {
+    background: #121212;
+    box-shadow: 
+      -8px -8px 16px var(--color-neo-light), 
+      8px 8px 16px var(--color-neo-dark);
+    border-radius: 1rem;
+    padding: 1.5rem;
+  }
+  
+  .neo-box-inset {
+    background: #121212;
+    box-shadow: 
+      inset -4px -4px 8px var(--color-neo-light), 
+      inset 4px 4px 8px var(--color-neo-dark);
+    border-radius: 1rem;
+    padding: 1.5rem;
+  }
+}
+
+/* Hide the Spline watermark */
+a[href^="https://spline.design"] {
+  display: none !important;
+}
