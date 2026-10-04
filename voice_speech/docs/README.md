@@ -15,7 +15,8 @@ An intelligent, real-time bidirectional voice communication engine built for RIV
 - **Natural Barge-In Interruption**: Instant model speech cancellation when the user begins speaking, synchronized via epoch counters.
 - **Dynamic Multi-Voice Selection**: Switch between prebuilt voices (*Aoede, Kore, Puck, Charon, Fenrir*) with automatic session re-handshake.
 - **Multilingual Support**: Supports Auto-detect, Hindi, English, and natural conversational Hinglish.
-- **Real-Time News Grounding**: Built-in zero-key Google News RSS tool calling with optional NewsAPI fallback.
+- **Multi-Tier Real-Time Web Grounding Tool**: Automatic live web search supporting **Tavily AI Search**, **NewsAPI**, and zero-key **Google News RSS** across all topics.
+- **Cross-Platform Support**: Native 1-click launch scripts for Windows (CMD & PowerShell) and Linux/macOS.
 - **Interactive 3D WebGL Interface**: Raymarched gyroid visualizer dynamically reactive to voice RMS amplitude.
 
 ---
@@ -31,38 +32,98 @@ An intelligent, real-time bidirectional voice communication engine built for RIV
 
 ## Quick Start
 
-> **Note:** All commands below assume your current working directory is `voice_speech/`. If you are in the project root, run `cd voice_speech` first.
+> **Note:** All commands below assume your current working directory is `voice_speech/`. If you are in the project root, navigate to `voice_speech/` first (`cd voice_speech`).
 
 ### Step 1 — Configure Environment
-Copy the example configuration file:
+
+Copy the example configuration template to `.env`:
+
+#### On Windows (PowerShell):
+```powershell
+Copy-Item .env.example .env
+```
+
+#### On Windows (Command Prompt):
+```cmd
+copy .env.example .env
+```
+
+#### On Linux / macOS:
 ```bash
 cp .env.example .env
 ```
-Add your Gemini API key in `.env`:
+
+Add your Gemini API key (and optional Tavily search key) in `.env`:
 ```env
 GEMINI_API_KEY=your_actual_gemini_api_key_here
+
+# Optional: Tavily AI Search for rich web grounding
+TAVILY_API_KEY=your_tavily_key_here
 ```
 
 ---
 
 ### Step 2 — Launch the Application
 
-#### Option A: Automated Runner Script (Recommended)
-The runner script initializes the virtual environment, syncs dependencies, and launches the server:
-```bash
-./run.sh
-```
+#### Option A: Automated 1-Click Launchers (Recommended)
+
+- **Windows (PowerShell):**
+  ```powershell
+  .\run.ps1
+  ```
+- **Windows (Command Prompt):**
+  ```cmd
+  run.bat
+  ```
+- **Linux / macOS:**
+  ```bash
+  ./run.sh
+  ```
+
+*The launcher automatically initializes a `.venv`, synchronizes dependencies from `requirements.txt`, configures `PYTHONPATH`, and starts the server on port 8000.*
+
+---
 
 #### Option B: Manual Setup
+
+##### Windows (PowerShell):
+```powershell
+# 1. Create and activate virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Set project path and run server
+$env:PYTHONPATH = ".."
+python -m voice_speech.web_server
+```
+
+##### Windows (Command Prompt):
+```cmd
+:: 1. Create and activate virtual environment
+python -m venv .venv
+call .venv\Scripts\activate.bat
+
+:: 2. Install dependencies
+pip install -r requirements.txt
+
+:: 3. Set project path and run server
+set PYTHONPATH=..
+python -m voice_speech.web_server
+```
+
+##### Linux / macOS:
 ```bash
-# 1. Create and activate a virtual environment
+# 1. Create and activate virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Launch the Gateway Server
+# 3. Launch the gateway server
 python -m web_server
 ```
 
@@ -121,7 +182,50 @@ Set the conversation language mode in the Settings modal:
 
 ---
 
-### D. Voice Activity Detection (VAD) Tuning
+### D. Real-Time Web Grounding & Tools Architecture
+
+RIVA equips Gemini Live with the `get_latest_news` function tool to retrieve fresh facts, live data, and answers to questions requiring up-to-date knowledge.
+
+```text
+User asks: "Who won the match yesterday and what was the score?"
+                         ↓
+Gemini Live invokes tool: get_latest_news(query="India vs West Indies 3rd ODI score")
+                         ↓
+              [ Tool Execution Chain ]
+                         ↓
+  ┌────────────────────────────────────────────────────────┐
+  │ 1. Tavily AI Search (if TAVILY_API_KEY is configured) │
+  │    → Delivers direct answer + full paragraph snippets  │
+  ├────────────────────────────────────────────────────────┤
+  │ 2. NewsAPI.org (if NEWS_API_KEY is configured)         │
+  │    → Delivers publisher headlines + descriptions       │
+  ├────────────────────────────────────────────────────────┤
+  │ 3. Universal Google News RSS (Zero-key fallback)       │
+  │    → Delivers multi-headline parsed live news feed     │
+  └────────────────────────────────────────────────────────┘
+                         ↓
+FunctionResponse delivered back to Gemini Live session
+                         ↓
+Gemini synthesizes natural spoken voice response with grounded facts
+```
+
+#### Tool Capabilities:
+- **Broad, Topic-Agnostic**: Works across world affairs, breaking news, politics, technology, culture, weather, sports statistics, player performances, scientific discoveries, and general knowledge.
+- **Follow-up Aware**: When follow-up questions request specific metrics, names, or performance statistics, Gemini invokes the tool to retrieve verified facts rather than guessing.
+
+#### Search Configuration Keys in `.env`:
+```env
+# Primary: Tavily AI Search (Free tier at https://tavily.com - recommended)
+TAVILY_API_KEY=your_tavily_api_key_here
+
+# Alternative: NewsAPI (Optional)
+NEWS_API_KEY=your_newsapi_key_here
+```
+*(If no search keys are configured, RIVA automatically and reliably uses the universal zero-key Google News RSS fallback).*
+
+---
+
+### E. Voice Activity Detection (VAD) Tuning
 RIVA uses server-side Voice Activity Detection on Google's infrastructure:
 
 ```env
@@ -149,7 +253,7 @@ VAD_END_SENSITIVITY=END_SENSITIVITY_HIGH
 
 ---
 
-### E. Concurrency & Circuit Breaker
+### F. Concurrency & Circuit Breaker
 ```env
 # Maximum simultaneous WebSocket voice sessions
 MAX_CONCURRENT_SESSIONS=5
@@ -164,27 +268,20 @@ LOG_LEVEL=INFO
 
 ---
 
-### F. Real-Time News Grounding Tool
-RIVA equips Gemini with a `get_latest_news` tool function:
-```text
-User asks: "What's the latest tech news?"
-   ↓
-Gemini invokes tool: get_latest_news(query="tech news")
-   ↓
-Riva Server fetches headlines (NewsAPI or Google News RSS fallback)
-   ↓
-Riva sends FunctionResponse to Gemini Live session
-   ↓
-Gemini synthesizes natural voice response with live grounding
-```
-- **Zero-Key RSS Fallback**: Works out of the box using Google News RSS.
-- **NewsAPI (Optional)**: If you provide `NEWS_API_KEY=your_key`, RIVA queries NewsAPI.org before falling back to RSS.
-
----
-
 ## Development & Testing
 
 ### Running the Test Suite
+
+#### Windows (PowerShell or CMD):
+```powershell
+# Activate virtual environment
+.venv\Scripts\Activate.ps1
+
+# Run all test suites
+pytest tests/ -v
+```
+
+#### Linux / macOS:
 ```bash
 # Activate virtual environment
 source .venv/bin/activate
@@ -193,8 +290,8 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
-### Running in Development Mode
-To run the server with auto-reload during frontend/backend development:
+### Running in Development Mode (Auto-Reload)
+
 ```bash
 uvicorn web_server:app --reload --host 127.0.0.1 --port 8000
 ```
@@ -214,15 +311,12 @@ uvicorn web_server:app --reload --host 127.0.0.1 --port 8000
 #### 3. `Address already in use` (Port 8000)
 - **Cause:** Another process is bound to port 8000.
 - **Solution:** Specify a different port:
-  ```bash
-  PORT=8080 ./run.sh
-  # or
-  uvicorn web_server:app --port 8080
-  ```
+  - Windows: `$env:PORT="8080"; python -m voice_speech.web_server`
+  - Linux: `PORT=8080 ./run.sh`
 
 #### 4. `pip: externally-managed-environment` (PEP 668)
 - **Cause:** Modern Linux distributions prevent non-venv global pip installs.
-- **Solution:** Use `./run.sh` (which manages a virtual environment automatically) or create one manually with `python3 -m venv .venv && source .venv/bin/activate`.
+- **Solution:** Use `./run.sh` (or `run.bat` / `run.ps1` on Windows) which manages a virtual environment automatically.
 
 ---
 
@@ -240,7 +334,7 @@ voice_speech/
 │   │   ├── state.py           # Session state
 │   │   └── session_manager.py # Concurrency & circuit breaker
 │   └── gemini/
-│       ├── tools.py           # News tools & dispatch
+│       ├── tools.py           # Multi-tier web tools & dispatch
 │       ├── session.py         # Gemini Live config
 │       └── streaming.py       # Audio streaming bridge
 ├── tests/                     # Automated unit tests
@@ -249,7 +343,9 @@ voice_speech/
 │   ├── app.js                 # Audio graph & WS client
 │   └── worklet.js             # PCM16 resampler
 ├── web_server.py              # FastAPI WebSocket gateway
-├── run.sh                     # Runner script
+├── run.bat                    # Windows CMD 1-click launcher
+├── run.ps1                    # Windows PowerShell 1-click launcher
+├── run.sh                     # Linux / macOS runner script
 ├── requirements.txt           # Python dependencies
 └── .env.example               # Environment template
 ```
