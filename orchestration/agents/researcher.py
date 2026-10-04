@@ -7,10 +7,10 @@ from orchestration.orchestrator.llm import call_gemini
 
 logger = logging.getLogger(__name__)
 
-RESEARCHER_TOOLS = ["web_search", "fetch_url_content", "read_file", "list_directory"]
+RESEARCHER_TOOLS = ["web_search", "fetch_url_content", "open_browser", "read_file", "list_directory"]
 
 
-@registry.register("researcher", AgentCapabilities(description="Handles internet research, documentation extraction, and data gathering.", tools=RESEARCHER_TOOLS, agent_level="TASK_DOER"))
+@registry.register("researcher", AgentCapabilities(description="Handles internet research, documentation extraction, web searching, opening links, and data gathering.", tools=RESEARCHER_TOOLS, agent_level="TASK_DOER"))
 def researcher_agent(task_data: InputData) -> AgentResponse:
     logger.info("Routing to Researcher Agent")
     
@@ -19,8 +19,9 @@ def researcher_agent(task_data: InputData) -> AgentResponse:
     
     sys_prompt = (
         "You are the Researcher Agent in the Riva-AGI autonomous system.\n"
-        "You have access to web search, url content fetching, and filesystem tools: web_search, fetch_url_content, read_file, and list_directory.\n"
+        "You have access to web search, url content fetching, browser launching, and filesystem tools: web_search, fetch_url_content, open_browser, read_file, and list_directory.\n"
         "When asked for current information, external documentation, or research, USE YOUR TOOLS to search the web and fetch live content.\n"
+        "When asked to open websites or URLs in the user's browser/Chrome, USE open_browser.\n"
         "Synthesize facts accurately and provide links/citations."
     )
     

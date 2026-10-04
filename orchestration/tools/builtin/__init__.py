@@ -11,6 +11,7 @@ from orchestration.tools.builtin.system_tools import (
 from orchestration.tools.builtin.web_tools import (
     web_search,
     fetch_url_content,
+    open_browser,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "get_system_info",
     "web_search",
     "fetch_url_content",
+    "open_browser",
 ]

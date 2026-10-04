@@ -199,3 +199,55 @@ def fetch_url_content(url: str, max_chars: int = 4000) -> str:
     except Exception as e:
         logger.error(f"Error fetching URL content from '{target_url}': {e}")
         return f"Error fetching URL content: {str(e)}"
+
+
+@tool(category="web")
+def open_browser(url: str, browser: str = "chrome") -> str:
+    """Opens a given URL in the user's web browser (supports Google Chrome or system default).
+
+    Args:
+        url: The web page URL to open (e.g. 'https://www.google.com').
+        browser: Browser to use, defaults to 'chrome'. Set to 'default' for system default.
+
+    Returns:
+        Status message indicating success or failure.
+    """
+    if not url or not url.strip():
+        return "Error: URL cannot be empty."
+
+    import os
+    import webbrowser
+
+    target_url = url.strip()
+    if not target_url.startswith(("http://", "https://")):
+        target_url = "https://" + target_url
+
+    try:
+        b_type = (browser or "chrome").lower().strip()
+        opened = False
+
+        if b_type == "chrome":
+            chrome_candidates = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+                os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            ]
+            for candidate in chrome_candidates:
+                if os.path.exists(candidate):
+                    try:
+                        webbrowser.register("google_chrome_custom", None, webbrowser.BackgroundBrowser(candidate))
+                        opened = webbrowser.get("google_chrome_custom").open(target_url)
+                        if opened:
+                            return f"Successfully opened '{target_url}' in Google Chrome."
+                    except Exception:
+                        pass
+                    break
+
+        opened = webbrowser.open(target_url)
+        if opened:
+            return f"Successfully opened '{target_url}' in web browser."
+        return f"Dispatched browser launch for '{target_url}'."
+    except Exception as e:
+        logger.error(f"Error opening browser for '{target_url}': {e}")
+        return f"Error opening browser: {str(e)}"
