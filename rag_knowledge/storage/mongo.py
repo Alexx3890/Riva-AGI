@@ -27,6 +27,25 @@ except ImportError:
     _HAS_PYMONGO = False
 
 
+def _ensure_dns_resolvers() -> None:
+    """Configures dnspython default resolver with reliable public fallbacks.
+    
+    Prevents SRV resolution timeouts on institutional / campus networks (e.g. KIET)
+    where internal DNS drops or throttles DNS SRV queries on port 53.
+    """
+    try:
+        import dns.resolver
+        resolver = dns.resolver.get_default_resolver()
+        public_servers = ["8.8.8.8", "1.1.1.1", "8.8.4.4"]
+        for srv in reversed(public_servers):
+            if srv in resolver.nameservers:
+                resolver.nameservers.remove(srv)
+            resolver.nameservers.insert(0, srv)
+        resolver.lifetime = max(float(getattr(resolver, "lifetime", 5.0)), 10.0)
+    except Exception:
+        pass
+
+
 class MongoKnowledgeStore:
     """Manages MongoDB connection, full-text search, and document storage for RAG."""
 
@@ -79,6 +98,9 @@ class MongoKnowledgeStore:
                 "socketTimeoutMS": self.timeout_ms,
             }
             is_tls = "mongodb+srv://" in self.uri.lower() or "tls=true" in self.uri.lower() or "ssl=true" in self.uri.lower()
+            if "mongodb+srv://" in self.uri.lower():
+                _ensure_dns_resolvers()
+
             if _HAS_CERTIFI and is_tls:
                 client_kwargs["tlsCAFile"] = certifi.where()
 
