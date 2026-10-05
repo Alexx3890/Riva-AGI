@@ -1,5 +1,6 @@
 """RAG Knowledge Service coordinating retrieval and Mistral synthesis."""
 
+import asyncio
 import logging
 from typing import Optional
 from rag_knowledge.retriever import KnowledgeRetriever
@@ -32,8 +33,8 @@ class RAGService:
         if not clean_q:
             return "Please specify what you would like to know about."
 
-        # 1. Retrieve relevant knowledge documents
-        results = self.retriever.retrieve(clean_q, top_k=2)
+        # 1. Retrieve relevant knowledge documents without blocking event loop
+        results = await asyncio.to_thread(self.retriever.retrieve, clean_q, top_k=2)
         if not results:
             logger.info(f"No RAG results found for query: '{clean_q}'")
             return f"I don't have specific details on '{clean_q}' in my knowledge base right now."
@@ -54,10 +55,10 @@ class RAGService:
                 return answer
 
         # 4. Seamless Fallback: Return structured factual summary directly
-        # Designed specifically for natural voice output
-        content = top_doc.get("content", "")
-        summary = top_doc.get("summary", "")
-        return content or summary
+        # Designed specifically for natural voice output (prefer summary over raw dump)
+        summary = top_doc.get("summary", "").strip()
+        content = top_doc.get("content", "").strip()
+        return summary or content
 
 
 # Global default instance

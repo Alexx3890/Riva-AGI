@@ -57,9 +57,12 @@ class MistralRAGClient:
             "Do not fabricate facts. Keep the answer to 2-3 natural sentences suitable for spoken conversation."
         )
 
+        safe_context = context.replace("</context>", "")
+        safe_query = query.replace("</user_question>", "").replace("</context>", "")
+
         user_content = (
-            f"<context>\n{context}\n</context>\n\n"
-            f"<user_question>\n{query}\n</user_question>\n\n"
+            f"<context>\n{safe_context}\n</context>\n\n"
+            f"<user_question>\n{safe_query}\n</user_question>\n\n"
             f"Please provide a concise, spoken answer based strictly on the reference context."
         )
 
@@ -104,7 +107,7 @@ class MistralRAGClient:
         try:
             answer = await loop.run_in_executor(None, _call_api)
             if answer:
-                logger.info(f"Mistral generated response: {answer[:80]}...")
+                logger.debug("Mistral generated response (%d chars)", len(answer))
                 return answer
         except Exception as e:
             logger.error(f"Async executor error calling Mistral: {e}")

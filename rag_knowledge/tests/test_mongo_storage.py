@@ -45,7 +45,7 @@ def test_mongo_store_mocked_success():
         assert store.is_available() is True
 
         store.ensure_indexes()
-        assert mock_collection.create_index.call_count == 2
+        assert mock_collection.create_index.call_count >= 2
 
         count = store.upsert_documents([{"id": "test_member", "title": "Test Member"}])
         assert count == 1

@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("rag_knowledge.storage.mongo")
 
@@ -35,22 +35,29 @@ class MongoKnowledgeStore:
         uri: Optional[str] = None,
         db_name: Optional[str] = None,
         collection_name: Optional[str] = None,
-        timeout_ms: int = 1500,
+        timeout_ms: Optional[int] = None,
     ) -> None:
         self.uri = uri if uri is not None else os.getenv("MONGODB_URI", "").strip()
         self.db_name = db_name or os.getenv("MONGODB_DB_NAME", "riva_knowledge").strip() or "riva_knowledge"
         self.collection_name = collection_name or os.getenv("MONGODB_COLLECTION", "knowledge_documents").strip() or "knowledge_documents"
-        self.timeout_ms = timeout_ms
+        
+        env_timeout = os.getenv("MONGODB_TIMEOUT_MS", "5000").strip()
+        default_timeout = int(env_timeout) if env_timeout.isdigit() else 5000
+        self.timeout_ms = timeout_ms if timeout_ms is not None else default_timeout
 
         self._client: Optional[Any] = None
         self._db: Optional[Any] = None
         self._collection: Optional[Any] = None
         self._is_connected: Optional[bool] = None
+        self._closed: bool = False
         self._last_fail_time: float = 0.0
         self._fail_cooldown_seconds: float = 60.0
 
     def connect(self) -> bool:
         """Attempts to initialize client and verify server connectivity."""
+        if self._closed:
+            return False
+
         if not _HAS_PYMONGO:
             logger.debug("pymongo is not installed; MongoDB storage is unavailable.")
             self._is_connected = False
@@ -71,7 +78,8 @@ class MongoKnowledgeStore:
                 "connectTimeoutMS": self.timeout_ms,
                 "socketTimeoutMS": self.timeout_ms,
             }
-            if _HAS_CERTIFI:
+            is_tls = "mongodb+srv://" in self.uri.lower() or "tls=true" in self.uri.lower() or "ssl=true" in self.uri.lower()
+            if _HAS_CERTIFI and is_tls:
                 client_kwargs["tlsCAFile"] = certifi.where()
 
             self._client = MongoClient(self.uri, **client_kwargs)
@@ -81,9 +89,11 @@ class MongoKnowledgeStore:
             self._collection = self._db[self.collection_name]
             self._is_connected = True
             logger.info("Connected to MongoDB successfully (db: %s, col: %s)", self.db_name, self.collection_name)
+            # Auto-ensure indexes on successful connection
+            self.ensure_indexes()
             return True
         except Exception as e:
-            logger.warning("MongoDB connection failed (%s: %s). Falling back to in-memory store.", type(e).__name__, e)
+            logger.warning("MongoDB connection failed (%s: %s). RAG will operate without database.", type(e).__name__, e)
             self._is_connected = False
             self._last_fail_time = time.time()
             if self._client:
@@ -96,13 +106,15 @@ class MongoKnowledgeStore:
 
     def is_available(self) -> bool:
         """Returns True if MongoDB is configured and responsive."""
-        if self._is_connected is None:
-            return self.connect()
-        return self._is_connected
+        if self._closed:
+            return False
+        if self._is_connected:
+            return True
+        return self.connect()
 
     def ensure_indexes(self) -> None:
         """Creates unique ID and weighted text indexes for optimal query ranking."""
-        if not self.is_available() or self._collection is None:
+        if not self._is_connected or self._collection is None:
             return
 
         try:
@@ -145,13 +157,14 @@ class MongoKnowledgeStore:
                 continue
 
             payload = dict(doc)
-            # Ensure _id matches id for easy querying
-            payload["_id"] = doc_id
-            payload.setdefault("is_active", True)
+            payload.pop("_id", None)
 
             self._collection.update_one(
                 {"_id": doc_id},
-                {"$set": payload},
+                {
+                    "$set": payload,
+                    "$setOnInsert": {"is_active": True},
+                },
                 upsert=True,
             )
             count += 1
@@ -160,7 +173,7 @@ class MongoKnowledgeStore:
         return count
 
     def search_text(self, query: str, top_k: int = 3, min_score: float = 1.0) -> List[Dict[str, Any]]:
-        """Searches MongoDB using text score ranking, falling back to regex alias/keyword match."""
+        """Searches MongoDB using text score ranking, falling back to word-bounded regex match."""
         if not self.is_available() or self._collection is None:
             return []
 
@@ -190,11 +203,16 @@ class MongoKnowledgeStore:
         except Exception as text_err:
             logger.debug("MongoDB text search error (%s), attempting token fallback", text_err)
 
-        # 2. Token-level Regex / Alias fallback (for exact name or token lookups)
-        tokens = [re.escape(t.lower()) for t in re.findall(r"\w+", clean_query) if len(t) > 2]
+        # 2. Token-level Regex / Alias fallback (with stopwords filter and word boundaries)
+        stopwords = {
+            "the", "is", "at", "which", "on", "who", "what", "where", "how",
+            "and", "or", "to", "in", "for", "with", "a", "an", "of", "about",
+            "are", "was", "were", "tell", "know", "me", "you"
+        }
+        tokens = [t.lower() for t in re.findall(r"\w+", clean_query) if len(t) > 2 and t.lower() not in stopwords]
         if tokens:
             try:
-                regex_pattern = "|".join(tokens)
+                regex_pattern = "|".join([r"\b" + re.escape(t) + r"\b" for t in tokens])
                 cursor = self._collection.find(
                     {
                         "$or": [
@@ -204,13 +222,36 @@ class MongoKnowledgeStore:
                         ],
                         "is_active": {"$ne": False},
                     }
-                ).limit(top_k)
+                ).limit(top_k * 2)
 
+                fallback_candidates: List[Tuple[float, Dict[str, Any]]] = []
                 for doc in cursor:
                     doc_id = doc.get("id") or str(doc.get("_id"))
-                    if doc_id not in seen_ids:
+                    if doc_id in seen_ids:
+                        continue
+
+                    # Score candidate by token occurrences in aliases/title/keywords
+                    score = 0.0
+                    aliases_text = " ".join(doc.get("aliases", [])).lower()
+                    title_text = str(doc.get("title", "")).lower()
+                    keywords_text = " ".join(doc.get("keywords", [])).lower()
+
+                    for tok in tokens:
+                        if re.search(r"\b" + re.escape(tok) + r"\b", aliases_text):
+                            score += 4.0
+                        if re.search(r"\b" + re.escape(tok) + r"\b", title_text):
+                            score += 3.0
+                        if re.search(r"\b" + re.escape(tok) + r"\b", keywords_text):
+                            score += 2.0
+
+                    if score >= min_score:
                         seen_ids.add(doc_id)
-                        results.append(self._format_doc(doc, score=3.0))
+                        fallback_candidates.append((score, doc))
+
+                # Sort fallback matches by relevance score descending
+                fallback_candidates.sort(key=lambda x: x[0], reverse=True)
+                for score, doc in fallback_candidates[:top_k]:
+                    results.append(self._format_doc(doc, score=score))
 
             except Exception as regex_err:
                 logger.warning("MongoDB token fallback search failed: %s", regex_err)
@@ -241,13 +282,14 @@ class MongoKnowledgeStore:
 
     def close(self) -> None:
         """Closes the active MongoDB client connection."""
+        self._closed = True
+        self._is_connected = False
         if self._client:
             try:
                 self._client.close()
             except Exception:
                 pass
             self._client = None
-            self._is_connected = False
 
 
 _GLOBAL_STORE: Optional[MongoKnowledgeStore] = None

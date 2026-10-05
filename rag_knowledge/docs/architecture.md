@@ -33,7 +33,7 @@ This document describes the internal design of the `rag_knowledge` subsystem.
 ### 1. `KnowledgeRetriever` (`retriever.py`)
 - Database-backed search engine querying MongoDB collection `knowledge_documents`.
 - Weighted full-text search indexing on `aliases` (10x), `title` (8x), `keywords` (5x), `summary` (3x), and `content` (1x).
-- Sub-millisecond token & regex alias lookup fallback.
+- Low-latency token & regex alias lookup fallback with word boundaries and stopwords filtering.
 - Returns top-k matching documents ranked by relevance score.
 
 ### 2. `MistralRAGClient` (`mistral_client.py`)

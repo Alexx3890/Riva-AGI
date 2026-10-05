@@ -75,6 +75,6 @@ async def rag_endpoint(q: str = Query(..., description="Query string")):
 
 ---
 
-## 4. Migrating from JSON to Vector DBs in Future
+## 4. Extending Storage Backends to Vector DBs in Future
 
-When your knowledge base grows beyond static JSON, simply subclass or replace `KnowledgeRetriever` in `rag_knowledge/retriever.py` with your vector store (ChromaDB, Pinecone, FAISS, etc.) without altering the public `query_rag` interface.
+When your knowledge base requires embedding-based semantic vector search, simply subclass or extend `KnowledgeRetriever` in `rag_knowledge/retriever.py` with your vector store (ChromaDB, Pinecone, FAISS, etc.) without altering the public `query_rag` interface.

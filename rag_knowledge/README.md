@@ -1,6 +1,6 @@
 # RAG Knowledge Subsystem (`rag_knowledge`)
 
-A modular, zero-dependency, self-contained Retrieval-Augmented Generation (RAG) package. Designed to provide fast factual knowledge retrieval and Mistral AI synthesis for conversational agents, voice assistants, and multi-agent platforms.
+A modular, database-backed, self-contained Retrieval-Augmented Generation (RAG) package. Designed to provide fast factual knowledge retrieval and Mistral AI synthesis for conversational agents, voice assistants, and multi-agent platforms.
 
 ---
 

@@ -24,10 +24,23 @@ async def test_service_query_not_found():
 @pytest.mark.anyio
 async def test_service_query_fallback():
     # Mistral unconfigured -> fallback directly to retrieved facts
-    service = RAGService(mistral_client=MistralRAGClient(api_key=""))
-    res = await service.query("Who is Raj Ojha?")
-    assert "Raj Ojha" in res
-    assert "NextGen SuperComputing Club" in res
+    mock_retriever = MagicMock(spec=KnowledgeRetriever)
+    mock_retriever.retrieve.return_value = [
+        {
+            "id": "alex-doe",
+            "title": "Alex Doe",
+            "summary": "Alex Doe is an AI systems architect focusing on modular speech systems.",
+            "content": "Alex Doe is an AI systems architect focusing on modular speech systems.",
+            "score": 4.5,
+        }
+    ]
+    service = RAGService(
+        retriever=mock_retriever,
+        mistral_client=MistralRAGClient(api_key=""),
+    )
+    res = await service.query("Who is Alex Doe?")
+    assert "Alex Doe" in res
+    assert "systems architect" in res
 
 
 @pytest.mark.anyio
@@ -35,16 +48,38 @@ async def test_service_query_with_mistral():
     mock_mistral = MagicMock(spec=MistralRAGClient)
     mock_mistral.is_configured = True
     mock_mistral.generate_answer = AsyncMock(
-        return_value="Raj Ojha is an AI systems architect at KIET."
+        return_value="Alex Doe is an AI systems architect at Riva."
     )
+    mock_retriever = MagicMock(spec=KnowledgeRetriever)
+    mock_retriever.retrieve.return_value = [
+        {
+            "id": "alex-doe",
+            "title": "Alex Doe",
+            "summary": "Alex Doe is an AI researcher at Riva.",
+            "content": "Alex Doe details",
+            "score": 4.0,
+        }
+    ]
 
-    service = RAGService(mistral_client=mock_mistral)
-    answer = await service.query("Do you know Raj Ojha?")
-    assert answer == "Raj Ojha is an AI systems architect at KIET."
+    service = RAGService(retriever=mock_retriever, mistral_client=mock_mistral)
+    answer = await service.query("Do you know Alex Doe?")
+    assert answer == "Alex Doe is an AI systems architect at Riva."
     mock_mistral.generate_answer.assert_awaited_once()
 
 
 @pytest.mark.anyio
-async def test_global_query_rag_helper():
-    res = await query_rag("Who is Raj Ojha?")
-    assert "Raj Ojha" in res
+async def test_global_query_rag_helper(monkeypatch):
+    service = get_rag_service()
+    mock_retrieve = MagicMock(return_value=[
+        {
+            "id": "alex-doe",
+            "title": "Alex Doe",
+            "summary": "Alex Doe is an AI researcher at Riva.",
+            "content": "Alex Doe details",
+            "score": 4.0,
+        }
+    ])
+    monkeypatch.setattr(service.retriever, "retrieve", mock_retrieve)
+    monkeypatch.setattr(service.mistral_client, "api_key", "")
+    res = await query_rag("Who is Alex Doe?")
+    assert "Alex Doe" in res
