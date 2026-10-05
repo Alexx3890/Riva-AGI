@@ -144,7 +144,40 @@ def call_gemini(
                 logger.info(f"Agent [{agent_id}] invoking LLM -> {current_model} (tools: {len(wrapped_tools)})")
                 chat = client.chats.create(model=current_model, config=config)
                 response = chat.send_message(prompt)
-                content = response.text or ""
+                
+                # Safely extract text
+                try:
+                    content = response.text or ""
+                except Exception:
+                    content = ""
+
+                if not content and hasattr(response, "candidates") and response.candidates:
+                    text_parts = []
+                    for cand in response.candidates:
+                        if hasattr(cand, "content") and hasattr(cand.content, "parts") and cand.content.parts:
+                            for part in cand.content.parts:
+                                if hasattr(part, "text") and part.text:
+                                    text_parts.append(part.text)
+                    if text_parts:
+                        content = "\n".join(text_parts).strip()
+
+                # If model ended on a tool execution without producing trailing text, ask for summary
+                if not content.strip() and executed_tools:
+                    try:
+                        followup = chat.send_message("Please provide a concise summary of the actions you just completed and the final result.")
+                        if followup and hasattr(followup, "text") and followup.text:
+                            content = followup.text.strip()
+                    except Exception:
+                        pass
+
+                # Fallback if still blank
+                if not content.strip() and executed_tools:
+                    tool_bullets = []
+                    for t in executed_tools:
+                        params_str = ", ".join(f"{k}='{v}'" for k, v in t.parameters.items())
+                        tool_bullets.append(f"- `{t.tool_name}` ({params_str})")
+                    content = "Executed the following tool actions successfully:\n" + "\n".join(tool_bullets)
+
                 last_error = None
                 success = True
                 break

@@ -32,6 +32,7 @@ venv.bak/
 htmlcov/
 .tox/
 .nox/
+chat.py
 
 # Logs & Databases
 *.log

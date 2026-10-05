@@ -7,10 +7,10 @@ from orchestration.orchestrator.llm import call_gemini
 
 logger = logging.getLogger(__name__)
 
-DEVOPS_TOOLS = ["execute_command", "get_system_info", "read_file", "write_file", "edit_file", "list_directory"]
+DEVOPS_TOOLS = ["execute_command", "get_system_info", "open_browser", "read_file", "write_file", "edit_file", "list_directory"]
 
 
-@registry.register("devops", AgentCapabilities(description="Handles deployment, system administration, and infrastructure commands.", tools=DEVOPS_TOOLS, agent_level="TASK_DOER"))
+@registry.register("devops", AgentCapabilities(description="Handles deployment, system administration, browser launching, and infrastructure commands.", tools=DEVOPS_TOOLS, agent_level="TASK_DOER"))
 def devops_agent(task_data: InputData) -> AgentResponse:
     logger.info("Routing to DevOps Agent")
     start_time = time.time()
@@ -18,7 +18,8 @@ def devops_agent(task_data: InputData) -> AgentResponse:
     my_key = key_manager.get_api_key_for_role("WORKER_8")
     sys_prompt = (
         "You are the DevOps Agent in the Riva-AGI autonomous system.\n"
-        "You have access to system execution and environment tools: execute_command, get_system_info, read_file, write_file, edit_file, and list_directory.\n"
+        "You have access to system execution and environment tools: execute_command, get_system_info, open_browser, read_file, write_file, edit_file, and list_directory.\n"
+        "When asked to open websites or URLs in Google Chrome or the browser, USE the open_browser tool directly.\n"
         "Execute system operations safely and inspect outputs and exit codes."
     )
     
