@@ -1,6 +1,6 @@
 """RAG Knowledge Package for Riva Voice Assistant.
 
-Provides modular knowledge retrieval and Mistral AI synthesis.
+Provides modular knowledge retrieval and Google Gemini synthesis.
 """
 
 import os
@@ -8,10 +8,11 @@ from pathlib import Path
 
 
 def _load_env_fallback() -> None:
-    """Environment loader that reads .env from project root or package dir."""
+    """Environment loader that reads .env from project root, package dir, or voice_speech dir."""
     env_paths = [
         Path(__file__).resolve().parent / ".env",
         Path(__file__).resolve().parent.parent / ".env",
+        Path(__file__).resolve().parent.parent / "voice_speech" / ".env",
     ]
     # Optionally check cwd if explicitly enabled
     if os.getenv("RAG_LOAD_CWD_ENV", "").lower() in ("true", "1", "yes"):
@@ -57,13 +58,13 @@ def _load_env_fallback() -> None:
 _load_env_fallback()
 
 from rag_knowledge.retriever import KnowledgeRetriever
-from rag_knowledge.mistral_client import MistralRAGClient
+from rag_knowledge.gemini_client import GeminiRAGClient
 from rag_knowledge.service import RAGService, query_rag, get_rag_service
 from rag_knowledge.storage.mongo import MongoKnowledgeStore
 
 __all__ = [
     "KnowledgeRetriever",
-    "MistralRAGClient",
+    "GeminiRAGClient",
     "RAGService",
     "query_rag",
     "get_rag_service",

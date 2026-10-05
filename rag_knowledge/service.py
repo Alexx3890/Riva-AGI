@@ -1,10 +1,10 @@
-"""RAG Knowledge Service coordinating retrieval and Mistral synthesis."""
+"""RAG Knowledge Service coordinating retrieval and Gemini synthesis."""
 
 import asyncio
 import logging
 from typing import Optional
 from rag_knowledge.retriever import KnowledgeRetriever
-from rag_knowledge.mistral_client import MistralRAGClient
+from rag_knowledge.gemini_client import GeminiRAGClient
 
 logger = logging.getLogger("rag.service")
 
@@ -15,10 +15,10 @@ class RAGService:
     def __init__(
         self,
         retriever: Optional[KnowledgeRetriever] = None,
-        mistral_client: Optional[MistralRAGClient] = None,
+        llm_client: Optional[GeminiRAGClient] = None,
     ):
         self.retriever = retriever or KnowledgeRetriever()
-        self.mistral_client = mistral_client or MistralRAGClient()
+        self.llm_client = llm_client or GeminiRAGClient()
 
     async def query(self, user_query: str) -> str:
         """Processes a user question, retrieves relevant facts, and synthesizes an answer.
@@ -48,9 +48,9 @@ class RAGService:
             context_parts.append(f"Title: {doc.get('title')}\nDetails: {doc.get('content')}")
         context = "\n\n".join(context_parts)
 
-        # 3. Attempt Mistral API synthesis if available
-        if self.mistral_client.is_configured:
-            answer = await self.mistral_client.generate_answer(clean_q, context)
+        # 3. Attempt Gemini API synthesis if available
+        if self.llm_client.is_configured:
+            answer = await self.llm_client.generate_answer(clean_q, context)
             if answer:
                 return answer
 

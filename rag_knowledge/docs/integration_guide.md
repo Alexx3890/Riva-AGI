@@ -9,7 +9,7 @@ Because `rag_knowledge` is designed as a standalone, self-contained Python packa
 Copy or symlink the `rag_knowledge/` folder into your target project root.
 
 ```python
-from rag_knowledge import query_rag, KnowledgeRetriever, MistralRAGClient, RAGService
+from rag_knowledge import query_rag, KnowledgeRetriever, GeminiRAGClient, RAGService
 
 # Simple one-liner query:
 answer = await query_rag("Who is Ankit tomar?")
