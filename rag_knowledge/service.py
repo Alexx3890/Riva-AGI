@@ -20,11 +20,16 @@ class RAGService:
         self.retriever = retriever or KnowledgeRetriever()
         self.llm_client = llm_client or GeminiRAGClient()
 
-    async def query(self, user_query: str) -> str:
+    async def query(
+        self,
+        user_query: str,
+        pre_retrieved: Optional[list] = None,
+    ) -> str:
         """Processes a user question, retrieves relevant facts, and synthesizes an answer.
 
         Args:
-            user_query: The question asked by user (e.g. 'Do you know about Raj Ojha?').
+            user_query: The question asked by user (e.g. 'Do you know about Alex Doe?').
+            pre_retrieved: Optional pre-retrieved results to avoid redundant database calls.
 
         Returns:
             Grounded answer string ready for voice output.
@@ -34,9 +39,17 @@ class RAGService:
             return "Please specify what you would like to know about."
 
         # 1. Retrieve relevant knowledge documents without blocking event loop
-        results = await asyncio.to_thread(self.retriever.retrieve, clean_q, top_k=2)
+        store_available = self.retriever.store.is_available()
+        if pre_retrieved is not None:
+            results = pre_retrieved
+        else:
+            results = await asyncio.to_thread(self.retriever.retrieve, clean_q, top_k=2)
+
         if not results:
-            logger.info(f"No RAG results found for query: '{clean_q}'")
+            if not store_available:
+                logger.warning("Knowledge database is unreachable for query: '%s'", clean_q)
+                return "The knowledge database is currently unavailable. Please try again shortly."
+            logger.info("No RAG results found for query: '%s'", clean_q)
             return f"I don't have specific details on '{clean_q}' in my knowledge base right now."
 
         top_doc = results[0]

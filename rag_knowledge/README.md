@@ -10,7 +10,7 @@ A modular, database-backed, self-contained Retrieval-Augmented Generation (RAG) 
 - **Database-Backed RAG Storage**: Powered by MongoDB (`riva_knowledge.knowledge_documents`) with weighted full-text search and alias matching.
 - **Dynamic Live Updates**: Add, modify, or delete knowledge documents directly in MongoDB without server restarts or redeployments.
 - **Auto `.env` Discovery**: Automatically detects and loads `.env` from package or workspace roots on import.
-- **Google Gemini Synthesis**: Uses Gemini Flash (`gemini-flash-latest` by default) via standard Python `urllib` with strict grounding prompts to generate concise, 2–3 sentence spoken answers.
+- **Google Gemini Synthesis**: Uses Gemini Flash (`gemini-flash-lite-latest` by default) via standard Python `urllib` with strict grounding prompts to generate concise, 2–3 sentence spoken answers.
 - **Resilient Fallback**: If `GEMINI_API_KEY` is omitted, rate-limited, or unavailable, it immediately returns the factual grounded text directly so conversational pipelines never fail.
 
 ---
@@ -35,6 +35,7 @@ rag_knowledge/
 │   └── integration_guide.md   # Guide on integrating into any system / voice agent
 └── tests/
     ├── __init__.py
+    ├── conftest.py            # Hermetic test isolation fixtures
     ├── test_retriever.py      # Unit tests for retriever
     ├── test_mongo_storage.py  # Unit tests for MongoDB storage layer
     ├── test_gemini_client.py  # Unit tests for Gemini API client and fallbacks
@@ -51,13 +52,13 @@ Query the knowledge base directly from your terminal:
 
 ```bash
 # Ask a question
-python -m rag_knowledge "Do you know about Ankit tomar?"
+python -m rag_knowledge "Do you know about Alex Doe?"
 
 # List all stored knowledge documents
 python -m rag_knowledge --list
 
 # Query with retrieval match scores
-python -m rag_knowledge "Who is Ankit tomar?" -v
+python -m rag_knowledge "Who is Alex Doe?" -v
 ```
   
 ### 2. Python API Usage
@@ -70,7 +71,7 @@ from rag_knowledge import query_rag
 
 async def main():
     # Asynchronously query the RAG service
-    answer = await query_rag("Who is Ankit tomar?")
+    answer = await query_rag("Who is Alex Doe?")
     print("Answer:", answer)
 
 asyncio.run(main())
@@ -82,13 +83,20 @@ asyncio.run(main())
 
 Add these to your `.env` file or environment:
 
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `MONGODB_URI` | *(None)* | MongoDB Atlas or local connection string (e.g. `mongodb+srv://...`). |
-| `MONGODB_DB_NAME` | `riva_knowledge` | Target database name. |
-| `MONGODB_COLLECTION` | `knowledge_documents` | Target collection name. |
-| `GEMINI_API_KEY` | *(None)* | Your Google Gemini API key (from Google AI Studio). If unset, fallback mode returns raw structured facts. |
-| `GEMINI_MODEL` | `gemini-flash-latest` | Gemini model identifier to use for response synthesis (e.g., `gemini-flash-latest`, `gemini-1.5-flash`). |
+| Variable | Required | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `MONGODB_URI` | Yes (for DB) | *(None)* | MongoDB Atlas or local connection string (`mongodb+srv://...`). |
+| `MONGODB_DB_NAME` | No | `riva_knowledge` | Target database name. |
+| `MONGODB_COLLECTION` | No | `knowledge_documents` | Target collection name. |
+| `MONGODB_TIMEOUT_MS` | No | `5000` | Connection and socket timeout in milliseconds. |
+| `MONGODB_DNS_SERVERS` | No | `8.8.8.8,1.1.1.1,8.8.4.4` | Fallback public DNS servers for `mongodb+srv://` SRV resolution. |
+| `MONGODB_DNS_FALLBACK` | No | `1` | Set to `0` to disable the DNS fallback override. |
+| `MONGODB_DISABLE_DNS_OVERRIDE` | No | `0` | Set to `1` to disable the DNS fallback override. |
+| `GEMINI_API_KEY` | No (has fallback) | *(None)* | Google AI Studio API key. Sent securely in `x-goog-api-key` header. If unset, returns raw structured facts. |
+| `GEMINI_RAG_MODEL` | No | *(None)* | Specific Gemini model for RAG synthesis. Takes precedence over `GEMINI_MODEL`. |
+| `GEMINI_MODEL` | No | `gemini-flash-lite-latest` | Model ID for RAG response synthesis (`gemini-flash-lite-latest`, `gemini-3-flash-preview`). |
+| `GEMINI_TIMEOUT` | No | `4.0` | API request timeout in seconds (optimized for voice latency). |
+| `RAG_LOAD_CWD_ENV` | No | `false` | Set to `true` to allow auto-loading `.env` from the current working directory. |
 
 ---
 

@@ -9,22 +9,36 @@ from rag_knowledge.gemini_client import GeminiRAGClient
 
 @pytest.mark.anyio
 async def test_service_query_empty():
-    service = RAGService()
+    mock_retriever = MagicMock()
+    service = RAGService(retriever=mock_retriever)
     res = await service.query("")
     assert "Please specify" in res
 
 
 @pytest.mark.anyio
 async def test_service_query_not_found():
-    service = RAGService()
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = []
+    mock_retriever.store.is_available.return_value = True
+    service = RAGService(retriever=mock_retriever)
     res = await service.query("xyzunknownterm9999")
     assert "I don't have specific details" in res
 
 
 @pytest.mark.anyio
+async def test_service_query_db_unavailable():
+    mock_retriever = MagicMock()
+    mock_retriever.retrieve.return_value = []
+    mock_retriever.store.is_available.return_value = False
+    service = RAGService(retriever=mock_retriever)
+    res = await service.query("Who is Alex Doe?")
+    assert "database is currently unavailable" in res
+
+
+@pytest.mark.anyio
 async def test_service_query_fallback():
     # Gemini unconfigured -> fallback directly to retrieved facts
-    mock_retriever = MagicMock(spec=KnowledgeRetriever)
+    mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = [
         {
             "id": "alex-doe",
@@ -50,7 +64,7 @@ async def test_service_query_with_gemini():
     mock_llm.generate_answer = AsyncMock(
         return_value="Alex Doe is an AI systems architect at Riva."
     )
-    mock_retriever = MagicMock(spec=KnowledgeRetriever)
+    mock_retriever = MagicMock()
     mock_retriever.retrieve.return_value = [
         {
             "id": "alex-doe",
@@ -69,8 +83,9 @@ async def test_service_query_with_gemini():
 
 @pytest.mark.anyio
 async def test_global_query_rag_helper(monkeypatch):
-    service = get_rag_service()
-    mock_retrieve = MagicMock(return_value=[
+    mock_retriever = MagicMock()
+    mock_retriever.store.is_available.return_value = True
+    mock_retriever.retrieve.return_value = [
         {
             "id": "alex-doe",
             "title": "Alex Doe",
@@ -78,8 +93,8 @@ async def test_global_query_rag_helper(monkeypatch):
             "content": "Alex Doe details",
             "score": 4.0,
         }
-    ])
-    monkeypatch.setattr(service.retriever, "retrieve", mock_retrieve)
-    monkeypatch.setattr(service.llm_client, "api_key", "")
+    ]
+    mock_service = RAGService(retriever=mock_retriever, llm_client=GeminiRAGClient(api_key=""))
+    monkeypatch.setattr("rag_knowledge.service.get_rag_service", lambda: mock_service)
     res = await query_rag("Who is Alex Doe?")
     assert "Alex Doe" in res
