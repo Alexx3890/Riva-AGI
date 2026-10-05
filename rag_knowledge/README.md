@@ -30,9 +30,6 @@ rag_knowledge/
 │   └── mongo.py               # MongoDB connection pooling & full-text indexing
 ├── requirements.txt           # Package requirements
 ├── README.md                  # Main documentation
-├── docs/
-│   ├── architecture.md        # Technical architecture details
-│   └── integration_guide.md   # Guide on integrating into any system / voice agent
 └── tests/
     ├── __init__.py
     ├── conftest.py            # Hermetic test isolation fixtures
