@@ -1,6 +1,6 @@
 # rag_knowledge Requirements
-# Core functionality uses Python 3.10+ standard library (urllib, json, asyncio, re, logging)
-# Zero external runtime dependencies required for core functionality!
+# Gemini client and core RAG orchestration use standard Python 3.10+ library (urllib, json, asyncio, re).
+# MongoDB storage requires pymongo, dnspython, and certifi.
 
 # Optional: Environment variable loading for standalone usage
 python-dotenv>=1.0.0

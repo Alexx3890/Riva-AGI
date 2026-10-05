@@ -13,11 +13,6 @@ from rag_knowledge.storage.mongo import MongoKnowledgeStore, get_global_mongo_st
 logger = logging.getLogger("rag.retriever")
 
 
-def _tokenize(text: str) -> List[str]:
-    """Extracts lowercased alphanumeric word tokens."""
-    return re.findall(r"\w+", (text or "").lower())
-
-
 class KnowledgeRetriever:
     """Database-backed knowledge retriever for RAG queries using MongoDB."""
 
@@ -33,7 +28,7 @@ class KnowledgeRetriever:
         """Retrieves top_k relevant documents from MongoDB for the given query.
 
         Args:
-            query: The user query string (e.g. 'Who is Raj Ojha?').
+            query: The user query string (e.g. 'Who is Alex Doe?').
             top_k: Maximum number of relevant documents to return.
             min_score: Minimum relevance score required to be considered a match.
 
