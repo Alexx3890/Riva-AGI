@@ -1,23 +1,24 @@
-"""Tests for MistralRAGClient in rag_knowledge."""
+"""Tests for GeminiRAGClient in rag_knowledge."""
 
 import json
 from unittest.mock import MagicMock, patch
 import pytest
-from rag_knowledge.mistral_client import MistralRAGClient
+from rag_knowledge.gemini_client import GeminiRAGClient, DEFAULT_GEMINI_MODEL
 
 
 def test_client_configuration():
-    client_unconfigured = MistralRAGClient(api_key="")
+    client_unconfigured = GeminiRAGClient(api_key="")
     assert not client_unconfigured.is_configured
 
-    client_configured = MistralRAGClient(api_key="mock-key-12345")
+    client_configured = GeminiRAGClient(api_key="mock-gemini-key-12345")
     assert client_configured.is_configured
-    assert client_configured.api_key == "mock-key-12345"
+    assert client_configured.api_key == "mock-gemini-key-12345"
+    assert client_configured.model == DEFAULT_GEMINI_MODEL
 
 
 @pytest.mark.anyio
 async def test_generate_answer_unconfigured():
-    client = MistralRAGClient(api_key="")
+    client = GeminiRAGClient(api_key="")
     # Should return None smoothly without raising exception
     result = await client.generate_answer("Who is Raj?", "Raj is a researcher.")
     assert result is None
@@ -25,13 +26,15 @@ async def test_generate_answer_unconfigured():
 
 @pytest.mark.anyio
 async def test_generate_answer_mock_success():
-    client = MistralRAGClient(api_key="mock-key-123")
+    client = GeminiRAGClient(api_key="mock-key-123")
 
     fake_response_data = {
-        "choices": [
+        "candidates": [
             {
-                "message": {
-                    "content": "Raj Ojha is a core lead and AI researcher at NextGen SuperComputing Club."
+                "content": {
+                    "parts": [
+                        {"text": "Raj Ojha is an AI systems architect at NextGen SuperComputing Club."}
+                    ]
                 }
             }
         ]
@@ -47,12 +50,12 @@ async def test_generate_answer_mock_success():
             query="Who is Raj Ojha?",
             context="Raj Ojha is a core lead at NextGen club."
         )
-        assert answer == "Raj Ojha is a core lead and AI researcher at NextGen SuperComputing Club."
+        assert answer == "Raj Ojha is an AI systems architect at NextGen SuperComputing Club."
 
 
 @pytest.mark.anyio
 async def test_generate_answer_api_error():
-    client = MistralRAGClient(api_key="mock-key-123")
+    client = GeminiRAGClient(api_key="mock-key-123")
 
     with patch("urllib.request.urlopen", side_effect=Exception("Connection timeout")):
         # Should gracefully catch error and return None (triggering RAG fallback)

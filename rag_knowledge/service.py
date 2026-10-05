@@ -1,9 +1,10 @@
-"""RAG Knowledge Service coordinating retrieval and Mistral synthesis."""
+"""RAG Knowledge Service coordinating retrieval and Gemini synthesis."""
 
+import asyncio
 import logging
 from typing import Optional
 from rag_knowledge.retriever import KnowledgeRetriever
-from rag_knowledge.mistral_client import MistralRAGClient
+from rag_knowledge.gemini_client import GeminiRAGClient
 
 logger = logging.getLogger("rag.service")
 
@@ -14,10 +15,10 @@ class RAGService:
     def __init__(
         self,
         retriever: Optional[KnowledgeRetriever] = None,
-        mistral_client: Optional[MistralRAGClient] = None,
+        llm_client: Optional[GeminiRAGClient] = None,
     ):
         self.retriever = retriever or KnowledgeRetriever()
-        self.mistral_client = mistral_client or MistralRAGClient()
+        self.llm_client = llm_client or GeminiRAGClient()
 
     async def query(self, user_query: str) -> str:
         """Processes a user question, retrieves relevant facts, and synthesizes an answer.
@@ -32,8 +33,8 @@ class RAGService:
         if not clean_q:
             return "Please specify what you would like to know about."
 
-        # 1. Retrieve relevant knowledge documents
-        results = self.retriever.retrieve(clean_q, top_k=2)
+        # 1. Retrieve relevant knowledge documents without blocking event loop
+        results = await asyncio.to_thread(self.retriever.retrieve, clean_q, top_k=2)
         if not results:
             logger.info(f"No RAG results found for query: '{clean_q}'")
             return f"I don't have specific details on '{clean_q}' in my knowledge base right now."
@@ -47,17 +48,17 @@ class RAGService:
             context_parts.append(f"Title: {doc.get('title')}\nDetails: {doc.get('content')}")
         context = "\n\n".join(context_parts)
 
-        # 3. Attempt Mistral API synthesis if available
-        if self.mistral_client.is_configured:
-            answer = await self.mistral_client.generate_answer(clean_q, context)
+        # 3. Attempt Gemini API synthesis if available
+        if self.llm_client.is_configured:
+            answer = await self.llm_client.generate_answer(clean_q, context)
             if answer:
                 return answer
 
         # 4. Seamless Fallback: Return structured factual summary directly
-        # Designed specifically for natural voice output
-        content = top_doc.get("content", "")
-        summary = top_doc.get("summary", "")
-        return content or summary
+        # Designed specifically for natural voice output (prefer summary over raw dump)
+        summary = top_doc.get("summary", "").strip()
+        content = top_doc.get("content", "").strip()
+        return summary or content
 
 
 # Global default instance

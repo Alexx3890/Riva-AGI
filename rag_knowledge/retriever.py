@@ -29,7 +29,7 @@ class KnowledgeRetriever:
         """Lists active knowledge documents from MongoDB."""
         return self.store.list_documents()
 
-    def retrieve(self, query: str, top_k: int = 2, min_score: float = 3.0) -> List[Dict[str, Any]]:
+    def retrieve(self, query: str, top_k: int = 2, min_score: float = 1.5) -> List[Dict[str, Any]]:
         """Retrieves top_k relevant documents from MongoDB for the given query.
 
         Args:

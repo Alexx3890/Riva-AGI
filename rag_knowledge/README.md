@@ -1,6 +1,6 @@
 # RAG Knowledge Subsystem (`rag_knowledge`)
 
-A modular, zero-dependency, self-contained Retrieval-Augmented Generation (RAG) package. Designed to provide fast factual knowledge retrieval and Mistral AI synthesis for conversational agents, voice assistants, and multi-agent platforms.
+A modular, database-backed, self-contained Retrieval-Augmented Generation (RAG) package. Designed to provide fast factual knowledge retrieval and Google Gemini synthesis for conversational agents, voice assistants, and multi-agent platforms.
 
 ---
 
@@ -10,8 +10,8 @@ A modular, zero-dependency, self-contained Retrieval-Augmented Generation (RAG) 
 - **Database-Backed RAG Storage**: Powered by MongoDB (`riva_knowledge.knowledge_documents`) with weighted full-text search and alias matching.
 - **Dynamic Live Updates**: Add, modify, or delete knowledge documents directly in MongoDB without server restarts or redeployments.
 - **Auto `.env` Discovery**: Automatically detects and loads `.env` from package or workspace roots on import.
-- **Mistral API Synthesis**: Uses Mistral Chat Completion (`mistral-small-latest` by default) with strict grounding prompts to generate concise, 2–3 sentence spoken answers.
-- **Resilient Fallback**: If `MISTRAL_API_KEY` is omitted, rate-limited, or unavailable, it immediately returns the factual grounded text directly so conversational pipelines never fail.
+- **Google Gemini Synthesis**: Uses Gemini Flash (`gemini-flash-latest` by default) via standard Python `urllib` with strict grounding prompts to generate concise, 2–3 sentence spoken answers.
+- **Resilient Fallback**: If `GEMINI_API_KEY` is omitted, rate-limited, or unavailable, it immediately returns the factual grounded text directly so conversational pipelines never fail.
 
 ---
 
@@ -19,10 +19,10 @@ A modular, zero-dependency, self-contained Retrieval-Augmented Generation (RAG) 
 
 ```text
 rag_knowledge/
-├── __init__.py                # Package exports (query_rag, KnowledgeRetriever, MistralRAGClient, RAGService)
+├── __init__.py                # Package exports (query_rag, KnowledgeRetriever, GeminiRAGClient, RAGService)
 ├── __main__.py                # Package entrypoint (python -m rag_knowledge)
 ├── cli.py                     # Command-line query tool & inspector
-├── mistral_client.py          # Mistral API synthesis client with standard urllib
+├── gemini_client.py           # Gemini API synthesis client with standard urllib
 ├── retriever.py               # Database-backed search retriever over MongoDB
 ├── service.py                 # RAG orchestrator coordinating retrieval & generation
 ├── storage/                   # Database storage layer
@@ -37,7 +37,7 @@ rag_knowledge/
     ├── __init__.py
     ├── test_retriever.py      # Unit tests for retriever
     ├── test_mongo_storage.py  # Unit tests for MongoDB storage layer
-    ├── test_mistral_client.py # Unit tests for Mistral API client and fallbacks
+    ├── test_gemini_client.py  # Unit tests for Gemini API client and fallbacks
     └── test_service.py        # Unit tests for RAG service coordination
 ```
 
@@ -87,8 +87,8 @@ Add these to your `.env` file or environment:
 | `MONGODB_URI` | *(None)* | MongoDB Atlas or local connection string (e.g. `mongodb+srv://...`). |
 | `MONGODB_DB_NAME` | `riva_knowledge` | Target database name. |
 | `MONGODB_COLLECTION` | `knowledge_documents` | Target collection name. |
-| `MISTRAL_API_KEY` | *(None)* | Your Mistral AI API key. If unset, fallback mode returns raw structured facts. |
-| `MISTRAL_MODEL` | `mistral-small-latest` | Mistral model identifier to use for response synthesis. |
+| `GEMINI_API_KEY` | *(None)* | Your Google Gemini API key (from Google AI Studio). If unset, fallback mode returns raw structured facts. |
+| `GEMINI_MODEL` | `gemini-flash-latest` | Gemini model identifier to use for response synthesis (e.g., `gemini-flash-latest`, `gemini-1.5-flash`). |
 
 ---
 
