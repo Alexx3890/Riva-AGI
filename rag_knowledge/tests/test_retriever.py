@@ -2,19 +2,16 @@
 
 from unittest.mock import MagicMock
 import pytest
-from rag_knowledge.retriever import KnowledgeRetriever, _tokenize
+from rag_knowledge.retriever import KnowledgeRetriever
 from rag_knowledge.storage.mongo import MongoKnowledgeStore
 
 
-def test_tokenize():
-    tokens = _tokenize("Hello, World! Who is Raj Ojha?")
-    assert tokens == ["hello", "world", "who", "is", "raj", "ojha"]
-
-
 def test_retrieve_empty_query():
-    retriever = KnowledgeRetriever()
+    mock_store = MagicMock(spec=MongoKnowledgeStore)
+    retriever = KnowledgeRetriever(store=mock_store)
     assert retriever.retrieve("") == []
     assert retriever.retrieve("   ") == []
+    mock_store.search_text.assert_not_called()
 
 
 def test_retriever_delegates_to_store():

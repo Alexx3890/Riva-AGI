@@ -12,7 +12,7 @@ Copy or symlink the `rag_knowledge/` folder into your target project root.
 from rag_knowledge import query_rag, KnowledgeRetriever, GeminiRAGClient, RAGService
 
 # Simple one-liner query:
-answer = await query_rag("Who is Ankit tomar?")
+answer = await query_rag("Who is Alex Doe?")
 ```
 
 ---
@@ -25,7 +25,7 @@ RAG_TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "query_knowledge_base",
-        "description": "Query internal knowledge base for facts about people (e.g. Ankit tomar) and club projects.",
+        "description": "Query internal knowledge base for facts about people (e.g. Alex Doe) and club projects.",
         "parameters": {
             "type": "object",
             "properties": {

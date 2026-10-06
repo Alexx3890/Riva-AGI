@@ -7,6 +7,7 @@ upserting with graceful timeout handling and certifi TLS integration.
 import logging
 import os
 import re
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -22,6 +23,7 @@ except ImportError:
 try:
     import pymongo
     from pymongo import MongoClient
+    from pymongo.errors import OperationFailure
     _HAS_PYMONGO = True
 except ImportError:
     _HAS_PYMONGO = False
@@ -32,18 +34,25 @@ def _ensure_dns_resolvers() -> None:
     
     Prevents SRV resolution timeouts on institutional / campus networks (e.g. KIET)
     where internal DNS drops or throttles DNS SRV queries on port 53.
+    Can be configured via MONGODB_DNS_SERVERS or disabled via MONGODB_DISABLE_DNS_OVERRIDE=1.
     """
+    if os.getenv("MONGODB_DISABLE_DNS_OVERRIDE", "").lower() in ("1", "true", "yes") or \
+       os.getenv("MONGODB_DNS_FALLBACK", "").lower() in ("0", "false", "no"):
+        logger.debug("MongoDB DNS override is explicitly disabled.")
+        return
+
     try:
         import dns.resolver
         resolver = dns.resolver.get_default_resolver()
-        public_servers = ["8.8.8.8", "1.1.1.1", "8.8.4.4"]
+        raw_servers = os.getenv("MONGODB_DNS_SERVERS", "8.8.8.8,1.1.1.1,8.8.4.4").strip()
+        public_servers = [s.strip() for s in raw_servers.split(",") if s.strip()]
         for srv in reversed(public_servers):
             if srv in resolver.nameservers:
                 resolver.nameservers.remove(srv)
             resolver.nameservers.insert(0, srv)
         resolver.lifetime = max(float(getattr(resolver, "lifetime", 5.0)), 10.0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("DNS resolver configuration skipped: %s", e)
 
 
 class MongoKnowledgeStore:
@@ -71,67 +80,84 @@ class MongoKnowledgeStore:
         self._closed: bool = False
         self._last_fail_time: float = 0.0
         self._fail_cooldown_seconds: float = 60.0
+        self._lock = threading.Lock()
 
     def connect(self) -> bool:
         """Attempts to initialize client and verify server connectivity."""
-        if self._closed:
-            return False
+        with self._lock:
+            if self._closed:
+                return False
 
-        if not _HAS_PYMONGO:
-            logger.debug("pymongo is not installed; MongoDB storage is unavailable.")
-            self._is_connected = False
-            return False
+            if not _HAS_PYMONGO:
+                logger.debug("pymongo is not installed; MongoDB storage is unavailable.")
+                self._is_connected = False
+                return False
 
-        if not self.uri:
-            logger.debug("MONGODB_URI is not set; skipping MongoDB storage initialization.")
-            self._is_connected = False
-            return False
+            if not self.uri:
+                logger.debug("MONGODB_URI is not set; skipping MongoDB storage initialization.")
+                self._is_connected = False
+                return False
 
-        # If connection failed recently, avoid blocking in cooldown window
-        if self._is_connected is False and (time.time() - self._last_fail_time < self._fail_cooldown_seconds):
-            return False
+            # If connection failed recently, avoid blocking in cooldown window
+            if self._is_connected is False and (time.time() - self._last_fail_time < self._fail_cooldown_seconds):
+                return False
 
-        try:
-            client_kwargs: Dict[str, Any] = {
-                "serverSelectionTimeoutMS": self.timeout_ms,
-                "connectTimeoutMS": self.timeout_ms,
-                "socketTimeoutMS": self.timeout_ms,
-            }
-            is_tls = "mongodb+srv://" in self.uri.lower() or "tls=true" in self.uri.lower() or "ssl=true" in self.uri.lower()
-            if "mongodb+srv://" in self.uri.lower():
-                _ensure_dns_resolvers()
+            try:
+                client_kwargs: Dict[str, Any] = {
+                    "serverSelectionTimeoutMS": self.timeout_ms,
+                    "connectTimeoutMS": self.timeout_ms,
+                    "socketTimeoutMS": self.timeout_ms,
+                }
+                is_tls = "mongodb+srv://" in self.uri.lower() or "tls=true" in self.uri.lower() or "ssl=true" in self.uri.lower()
+                is_srv = "mongodb+srv://" in self.uri.lower()
+                if _HAS_CERTIFI and is_tls:
+                    client_kwargs["tlsCAFile"] = certifi.where()
 
-            if _HAS_CERTIFI and is_tls:
-                client_kwargs["tlsCAFile"] = certifi.where()
-
-            self._client = MongoClient(self.uri, **client_kwargs)
-            # Ping database to confirm connection
-            self._client.admin.command("ping")
-            self._db = self._client[self.db_name]
-            self._collection = self._db[self.collection_name]
-            self._is_connected = True
-            logger.info("Connected to MongoDB successfully (db: %s, col: %s)", self.db_name, self.collection_name)
-            # Auto-ensure indexes on successful connection
-            self.ensure_indexes()
-            return True
-        except Exception as e:
-            logger.warning("MongoDB connection failed (%s: %s). RAG will operate without database.", type(e).__name__, e)
-            self._is_connected = False
-            self._last_fail_time = time.time()
-            if self._client:
                 try:
-                    self._client.close()
-                except Exception:
-                    pass
-                self._client = None
-            return False
+                    self._client = MongoClient(self.uri, **client_kwargs)
+                    self._client.admin.command("ping")
+                except Exception as initial_err:
+                    err_text = str(initial_err).lower()
+                    # Apply DNS fallback resolver only on SRV resolution errors
+                    if is_srv and ("srv" in err_text or "dns" in err_text or "configurationerror" in type(initial_err).__name__.lower()):
+                        logger.warning("SRV resolution failed (%s). Applying DNS fallback resolvers and retrying...", initial_err)
+                        _ensure_dns_resolvers()
+                        if self._client:
+                            try:
+                                self._client.close()
+                            except Exception:
+                                pass
+                        self._client = MongoClient(self.uri, **client_kwargs)
+                        self._client.admin.command("ping")
+                    else:
+                        raise
+
+                self._db = self._client[self.db_name]
+                self._collection = self._db[self.collection_name]
+                self._is_connected = True
+                logger.info("Connected to MongoDB successfully (db: %s, col: %s)", self.db_name, self.collection_name)
+                # Auto-ensure indexes on successful connection
+                self.ensure_indexes()
+                return True
+            except Exception as e:
+                logger.warning("MongoDB connection failed (%s: %s). RAG will operate without database.", type(e).__name__, e)
+                self._is_connected = False
+                self._last_fail_time = time.time()
+                if self._client:
+                    try:
+                        self._client.close()
+                    except Exception:
+                        pass
+                    self._client = None
+                return False
 
     def is_available(self) -> bool:
         """Returns True if MongoDB is configured and responsive."""
         if self._closed:
             return False
-        if self._is_connected:
-            return True
+        with self._lock:
+            if self._is_connected:
+                return True
         return self.connect()
 
     def ensure_indexes(self) -> None:
@@ -143,7 +169,7 @@ class MongoKnowledgeStore:
             # 1. Unique index on document ID
             self._collection.create_index([("id", pymongo.ASCENDING)], unique=True)
 
-            # 2. Full-text search index with weighted fields
+            # 2. Full-text search index with weighted fields (default_language='none' for proper names)
             text_weights = {
                 "aliases": 10,
                 "title": 8,
@@ -161,11 +187,15 @@ class MongoKnowledgeStore:
                 ],
                 name="knowledge_text_index",
                 weights=text_weights,
-                default_language="english",
+                default_language="none",
             )
             logger.info("MongoDB indexes verified on '%s'", self.collection_name)
         except Exception as e:
-            logger.warning("Error creating MongoDB indexes: %s", e)
+            # Code 85: IndexOptionsConflict - an equivalent index already exists (e.g. default_language difference)
+            if getattr(e, "code", None) == 85 or "IndexOptionsConflict" in str(e):
+                logger.debug("Existing MongoDB text index preserved: %s", e)
+            else:
+                logger.warning("Notice on MongoDB index creation: %s", e)
 
     def upsert_documents(self, documents: List[Dict[str, Any]]) -> int:
         """Upserts a list of knowledge documents into the collection."""
@@ -181,12 +211,13 @@ class MongoKnowledgeStore:
             payload = dict(doc)
             payload.pop("_id", None)
 
+            update_doc: Dict[str, Any] = {"$set": payload}
+            if "is_active" not in payload:
+                update_doc["$setOnInsert"] = {"is_active": True}
+
             self._collection.update_one(
                 {"_id": doc_id},
-                {
-                    "$set": payload,
-                    "$setOnInsert": {"is_active": True},
-                },
+                update_doc,
                 upsert=True,
             )
             count += 1
@@ -231,7 +262,7 @@ class MongoKnowledgeStore:
             "and", "or", "to", "in", "for", "with", "a", "an", "of", "about",
             "are", "was", "were", "tell", "know", "me", "you"
         }
-        tokens = [t.lower() for t in re.findall(r"\w+", clean_query) if len(t) > 2 and t.lower() not in stopwords]
+        tokens = [t.lower() for t in re.findall(r"\w+", clean_query) if len(t) >= 2 and t.lower() not in stopwords]
         if tokens:
             try:
                 regex_pattern = "|".join([r"\b" + re.escape(t) + r"\b" for t in tokens])
