@@ -49,3 +49,14 @@ htmlcov/
 # Operating System
 .DS_Store
 Thumbs.db
+
+# Scratch artifacts & local test dumps
+scratch/
+docs/
+*.jpg
+*.jpeg
+*.png
+capture_photo.py
+sorting.py
+two_sum.py
+Start_Edge_DOM.bat
