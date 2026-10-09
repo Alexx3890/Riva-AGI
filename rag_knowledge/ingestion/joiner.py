@@ -1,13 +1,4 @@
-"""Pre-Ingestion Student Entity Joiner.
-
-Joins disjoint student records from:
-- UID mapping (UID, Name, Gender, Batch Name, Father Name)
-- Nominal Roll (Student UID, Name, Sem, Sec, Phone, Email, Father Name, Mentor)
-- Master Student List (Display Name, Degree, Branch, Batch, Year, Section, Roll Number, Status)
-
-into unified canonical student entities before the declarative dataset mapping runs.
-Protects against namesake collisions, isolates private values, and generates opaque entity references.
-"""
+"""Pre-Ingestion Student Entity Joiner."""
 
 from collections import Counter
 import hashlib
@@ -97,7 +88,6 @@ class StudentEntityJoiner:
         nom_map = self._load_nominal_roll(nom_files[0]) if nom_files else {}
         master_list = self._load_master_list(master_files[0]) if master_files else []
 
-        # Build in-memory lookup indices for Master List with namesake protection
         name_counts = Counter(m["name"].upper() for m in master_list if m.get("name"))
         master_by_roll: Dict[str, Dict[str, Any]] = {}
         master_by_email: Dict[str, Dict[str, Any]] = {}
@@ -115,7 +105,6 @@ class StudentEntityJoiner:
             if email and "@" in email and email not in master_by_email:
                 master_by_email[email] = m
 
-            # Only index by name if strictly unique across the dataset
             if name_u and name_counts[name_u] == 1:
                 master_by_unique_name[name_u] = m
 
@@ -123,7 +112,6 @@ class StudentEntityJoiner:
         merged_entities: Dict[str, Dict[str, Any]] = {}
         processed_master_rolls: Set[str] = set()
 
-        # Phase 1: Unify by UID (from UID.xlsx and Nominal Roll)
         all_uids = set(uid_map.keys()) | set(nom_map.keys())
         for uid in sorted(all_uids):
             self.safe_identifiers.add(uid)
@@ -134,7 +122,6 @@ class StudentEntityJoiner:
             name_u = display_name.upper()
             nom_email = n_info.get("in_memory_email", "").strip().lower()
 
-            # Attempt matching to Master List: 1. By unique Email, 2. By unique Name
             matched_master = None
             if nom_email and nom_email in master_by_email:
                 matched_master = master_by_email[nom_email]
@@ -146,7 +133,6 @@ class StudentEntityJoiner:
                 processed_master_rolls.add(roll)
                 matched_both_count += 1
 
-            # Extract fields without inventing facts
             branch = (matched_master.get("branch") if matched_master else "") or u_info.get("batch_name", "")
             degree = matched_master.get("degree", "") if matched_master else ""
             batch = (matched_master.get("academic_batch") if matched_master else "") or ""
@@ -156,7 +142,6 @@ class StudentEntityJoiner:
             mentor = n_info.get("mentor", "")
             status = matched_master.get("admission_status", "ACTIVE") if matched_master else "ACTIVE"
 
-            # Register sensitive contact values for Privacy Gate inspection in memory
             for pv in [
                 u_info.get("father_name"),
                 n_info.get("father_name"),
@@ -184,7 +169,6 @@ class StudentEntityJoiner:
             }
             merged_entities[ref_id] = entity_record
 
-        # Phase 2: Add remaining master records that didn't match any UID
         unmatched_master_count = 0
         for m in master_list:
             roll = m["roll_number"]
@@ -208,14 +192,12 @@ class StudentEntityJoiner:
                 "entity_ref_id": ref_id,
             }
 
-            # Register master list private values for Privacy Gate
             for pv in [m.get("phone"), m.get("in_memory_email"), m.get("father_name")]:
                 if pv and len(str(pv).strip()) >= 3:
                     self.known_private_values.add(str(pv).strip())
 
         self.canonical_students = list(merged_entities.values())
 
-        # Legitimate student and mentor names are public identities and must not be flagged as private values
         student_names = {s["name"].upper().strip() for s in self.canonical_students if s.get("name")}
         mentor_names = {s["mentor"].upper().strip() for s in self.canonical_students if s.get("mentor")}
         public_identities = student_names | mentor_names
@@ -223,7 +205,6 @@ class StudentEntityJoiner:
         self.safe_identifiers.update(student_names)
         self.safe_identifiers.update(name_tokens)
 
-        # Retain private emails and phones; remove any private names that collide with student/mentor identities
         cleaned_private: Set[str] = set()
         for pv in self.known_private_values:
             pv_clean = str(pv).strip()
@@ -233,8 +214,6 @@ class StudentEntityJoiner:
                 cleaned_private.add(pv_clean)
                 continue
             pv_up = pv_clean.upper()
-            # Full private names require at least two words (e.g. 'Bhanu Pratap Rai') to prevent single given names
-            # (e.g. 'Ganesh') from colliding with student first names in other datasets
             if len(pv_clean.split()) < 2:
                 continue
             is_public_name = (
@@ -297,7 +276,6 @@ class StudentEntityJoiner:
             if batch:
                 keywords.append(batch)
 
-            # Build readable summary without double spaces or trailing 'in .'
             parts = []
             degree_part = f"{degree} " if degree else ""
             year_part = f"Year {year} " if year else ""
@@ -412,7 +390,6 @@ class StudentEntityJoiner:
             sheet = wb.active or wb.worksheets[0]
             rows = list(sheet.iter_rows(values_only=True))
 
-            # Dynamically detect header row by searching for "student uid" or "uid"
             header_idx = -1
             col_map: Dict[str, int] = {}
             for idx, r in enumerate(rows):
@@ -468,7 +445,6 @@ class StudentEntityJoiner:
             if not rows:
                 return []
 
-            # Dynamic header mapping
             col_map: Dict[str, int] = {}
             header_idx = 0
             for idx, r in enumerate(rows[:5]):

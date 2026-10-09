@@ -724,15 +724,10 @@ def is_cloud_vision_permitted(filepath: Path, allow_cloud_vision: bool = False) 
 
 
 def extract_image_text(filepath: Path, allow_cloud_vision: bool = False) -> Tuple[str, str, Any]:
-    """Extracts textual and structured content from an image via local OCR (default) or opt-in Gemini Vision.
-
-    Returns:
-        (extracted_text, extraction_method, confidence)
-    """
+    """Extracts textual and structured content from an image via local OCR (default) or opt-in Gemini Vision."""
     load_env()
     cloud_opted_in = is_cloud_vision_permitted(filepath, allow_cloud_vision=allow_cloud_vision)
 
-    # 1. Default: Local OCR (pytesseract) to protect student privacy
     try:
         import pytesseract
         from PIL import Image
@@ -753,7 +748,6 @@ def extract_image_text(filepath: Path, allow_cloud_vision: bool = False) -> Tupl
     except Exception as e:
         logger.warning(f"Local OCR failed or unavailable for {filepath.name}: {e}")
 
-    # 2. Opt-in: Gemini Vision API (only if explicitly allowed via flag or ALLOW_CLOUD_VISION=1 / allowlist)
     if cloud_opted_in:
         api_key = get_vision_api_key()
         if api_key:
@@ -818,7 +812,6 @@ def extract_image_text(filepath: Path, allow_cloud_vision: bool = False) -> Tupl
                             cand = res.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                             if cand.strip():
                                 logger.info(f"Successfully extracted text from image {filepath.name} using Gemini Vision ({model_name}).")
-                                # Gemini Vision does not return an OCR word confidence score; record as unknown
                                 return cand.strip(), "gemini_vision", None
                     except urllib.error.HTTPError as he:
                         logger.warning(f"Gemini Vision call for {model_name} HTTP {he.code}: {he.reason}")
@@ -831,7 +824,6 @@ def extract_image_text(filepath: Path, allow_cloud_vision: bool = False) -> Tupl
     else:
         logger.info(f"Cloud vision is disabled for {filepath.name}. To enable, pass --cloud-vision or configure ALLOW_CLOUD_VISION.")
 
-    # 3. If extraction failed or yielded nothing, report and skip rather than creating a junk record
     logger.warning(f"No textual content could be extracted from image {filepath.name}. Skipping indexing.")
     return "", "none", None
 
@@ -851,7 +843,6 @@ def load_image_documents(filepath: Path, allow_cloud_vision: bool = False) -> Li
         raw_text, method, confidence = str(res or ""), "custom", None
 
     if not raw_text or not raw_text.strip():
-        # Do not index empty images or fallback junk records
         return []
 
     conf_record = confidence if confidence is not None else "unknown"
@@ -877,7 +868,6 @@ def load_image_documents(filepath: Path, allow_cloud_vision: bool = False) -> Li
     documents = []
     clean_stem = re.sub(r"[^a-zA-Z0-9]+", "_", filepath.stem).strip("_").lower()
 
-    # Split into sections if image contains multiple questions or headings
     raw_sections = [s.strip() for s in re.split(r"\n\s*---\s*\n", raw_text) if s.strip()]
     if len(raw_sections) <= 1:
         raw_sections = [s.strip() for s in re.split(r"\n(?=#{1,3}\s+)", raw_text) if s.strip()]
@@ -887,7 +877,6 @@ def load_image_documents(filepath: Path, allow_cloud_vision: bool = False) -> Li
         extra_keywords.append("needs_review")
 
     if len(raw_sections) > 1:
-        # Full content overview
         documents.append({
             "id": f"img_{clean_stem}_full",
             "title": f"{filepath.stem.replace('_', ' ').title()} - Full Content",
@@ -946,19 +935,7 @@ def load_generic_tabular_dataset(
     safe_identifiers: Optional[Set[str]] = None,
     known_private_values: Optional[Set[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """Universal tabular ingestion engine for CSV, TSV, and Excel spreadsheets.
-
-    Dynamically ingests any arbitrary table without hardcoded column names or file rules:
-    1. Reads headers and rows across sheets.
-    2. Identifies key columns (entity names, statuses, waiting lists, attendance, categories).
-    3. Produces a Master Dataset Overview document.
-    4. Automatically generates dedicated Aggregation Documents:
-       - Waiting List breakdown (when status/outcome values contain 'wait', 'waitlist', or 'reserve').
-       - Attendance summary (when attendance fields with 'P', 'A', 'Present', 'Absent' exist).
-       - Status / Outcome distribution & rosters.
-       - Category / Domain / Department groupings.
-    5. Produces entity-level row documents with privacy-safe masking.
-    """
+    """Universal tabular ingestion engine for CSV, TSV, and Excel spreadsheets."""
     if not filepath.is_file():
         return []
 
@@ -1014,7 +991,6 @@ def load_generic_tabular_dataset(
         if not headers or not data_rows:
             continue
 
-        # 1. Identify primary entity name / title column (exclude email/phone headers)
         name_col_idx = -1
         for i, h in enumerate(headers):
             h_low = h.lower()
@@ -1048,7 +1024,6 @@ def load_generic_tabular_dataset(
             clean = re.sub(r"\+?\d{10,12}", "", clean).strip()
             return clean if clean else "Candidate"
 
-        # 2. Discover categorical columns dynamically (exclude private/contact columns)
         categorical_cols: Dict[int, Tuple[str, Counter]] = {}
         for c_idx, h in enumerate(headers):
             h_low = h.lower()
@@ -1061,7 +1036,6 @@ def load_generic_tabular_dataset(
             if 1 <= len(distinct) <= 30 and (len(distinct) / len(vals) <= 0.65 or len(distinct) <= 10):
                 categorical_cols[c_idx] = (h, Counter(vals))
 
-        # 3. Build Table Master Overview Document
         safe_headers = [
             h for h in headers
             if not any(k in h.lower() for k in ["email", "phone", "mobile", "contact", "father", "parent", "guardian", "gender", "address", "dob", "birth"])
@@ -1093,7 +1067,6 @@ def load_generic_tabular_dataset(
             "is_active": True,
         })
 
-        # Helper to filter out sensitive attributes for waitlist and aggregations
         def _get_safe_row_attributes(r_row: List[str]) -> List[str]:
             attrs = []
             for ci in range(len(r_row)):
@@ -1106,12 +1079,10 @@ def load_generic_tabular_dataset(
                     attrs.append(f"{headers[ci]}: {v}")
             return attrs
 
-        # 4. Generate Targeted Aggregation Documents (Waiting List, Attendance, Status, Categories)
         for c_idx, (h, cnt) in categorical_cols.items():
             h_low = h.lower()
             clean_h_key = re.sub(r"[^a-zA-Z0-9]+", "_", h).strip("_").lower()
 
-            # A. Dedicated Waiting List Document (with column filtering and part chunking)
             has_waiting = any("wait" in str(v).lower() for v in cnt)
             if has_waiting:
                 wl_rows = [r for r in data_rows if len(r) > c_idx and "wait" in str(r[c_idx]).lower()]
@@ -1176,7 +1147,6 @@ def load_generic_tabular_dataset(
                             "is_active": True,
                         })
 
-            # B. Dedicated Attendance Document (with part chunking for large rosters)
             is_attendance = "attendance" in h_low or (len(cnt) <= 4 and set(cnt.keys()).issubset({"P", "A", "Present", "Absent", "p", "a"}))
             if is_attendance and len(cnt) <= 6:
                 p_rows = [r for r in data_rows if len(r) > c_idx and str(r[c_idx]).upper() in ("P", "PRESENT")]
@@ -1239,7 +1209,6 @@ def load_generic_tabular_dataset(
                             "is_active": True,
                         })
 
-            # C. Category / Domain / Branch Breakdown
             is_category = any(k in h_low for k in ["domain", "branch", "department", "category", "role", "section", "status", "result"])
             if is_category and len(cnt) <= 25:
                 cat_lines = [
@@ -1297,7 +1266,6 @@ def load_generic_tabular_dataset(
                     "is_active": True,
                 })
 
-        # 5. Row-level Structured Entity Documents (Process all rows with stable IDs and identifier exemptions)
         for idx, r in enumerate(data_rows):
             entity_name = r[name_col_idx] if len(r) > name_col_idx and r[name_col_idx] else f"Record #{idx + 1}"
             if not entity_name or entity_name.lower() in ("not found", "none", "nan"):
@@ -1307,7 +1275,6 @@ def load_generic_tabular_dataset(
             row_meta: Dict[str, Any] = {"source": filepath.name, "row_index": idx + 1}
             id_val = None
 
-            # Collect contact values from sensitive columns in this row to detect accidental duplicate entries in ID columns
             row_contact_digits = set()
             for ci, h in enumerate(headers):
                 if ci < len(r) and r[ci]:
@@ -1321,12 +1288,9 @@ def load_generic_tabular_dataset(
                 if ci < len(r) and r[ci]:
                     val = str(r[ci]).strip()
 
-                    # Check if column is an identifier column using word-boundary matching
-                    # Prevents substrings in words like 'residence', 'valid', 'paid', 'guide' from matching 'id'
                     is_contact_header = is_sensitive_header(h)
                     is_id_col = bool(_ID_COLUMN_PATTERN.search(h)) and not is_contact_header
 
-                    # Strictly filter private contact details from both metadata payload and embedded text
                     if is_contact_header:
                         continue
                     if is_email_address(val):
@@ -1336,15 +1300,12 @@ def load_generic_tabular_dataset(
                     is_known_phone = bool(len(digits) >= 10 and (digits in row_contact_digits or digits in private_digits))
                     val_is_safe = bool(safe_clean and (val.upper() in safe_clean or clean_identifier(val).upper() in safe_clean))
 
-                    # If in an ID column, filter out if it actually matches a known phone number
-                    # from the row/master list (and is not an approved safe identifier). Otherwise allow valid IDs.
                     if is_id_col:
                         if is_known_phone and not val_is_safe:
                             continue
                         if not id_val:
                             id_val = clean_identifier(val)
                     else:
-                        # Non-ID columns are strictly checked for phone numbers
                         if is_phone_number(val) and not val_is_safe:
                             continue
                         if len(digits) >= 10 and (val.startswith("+") or digits.startswith(("6", "7", "8", "9"))) and not val_is_safe:
@@ -1360,7 +1321,6 @@ def load_generic_tabular_dataset(
             row_content = f"### {entity_name}\n**Dataset**: {sub_title}\n\n" + "\n".join(row_fields)
             clean_entity_id = re.sub(r"[^a-zA-Z0-9]+", "_", entity_name).strip("_").lower()
 
-            # Deterministic, position-independent ID based on unique identifier or normalized entity name
             if id_val:
                 doc_seed = f"{clean_slug}_{id_val}"
             else:
@@ -1417,7 +1377,6 @@ def load_source_documents(
         active_safe_ids = set(safe_identifiers) if safe_identifiers else set()
         active_private_vals = set(known_private_values) if known_private_values else set()
 
-        # 1. Process unified student datasets using canonical StudentEntityJoiner
         has_uid = (source_path / "UID.xlsx").exists()
         has_nominal = any("Nominal" in f.name for f in source_path.glob("*.xlsx"))
         has_student = any("STUDENT" in f.name for f in source_path.glob("*.xlsx"))
@@ -1444,7 +1403,6 @@ def load_source_documents(
         if dtype == "student":
             return docs
 
-        # 2. Process all remaining files in directory using universal processors
         for file in sorted(source_path.iterdir()):
             if not file.is_file() or file in handled_files:
                 continue
@@ -1637,14 +1595,12 @@ def main():
             print(f"[ERROR] Qdrant storage is unreachable. Verify Qdrant configuration in .env.")
             sys.exit(1)
 
-        # Safety check: Refuse to clear active live production collection alias
         live_alias = os.getenv("QDRANT_LIVE_COLLECTION", "").strip() or os.getenv("LIVE_COLLECTION", "").strip()
         if live_alias and store.collection_name.strip().lower() == live_alias.lower():
             logger.error(f"Refusing to clear live production collection '{store.collection_name}'.")
             print(f"[ERROR] Refusing to clear collection '{store.collection_name}' because it matches active LIVE collection alias ({live_alias}).")
             sys.exit(1)
 
-        # Require explicit confirmation
         if not getattr(args, "yes", False):
             if sys.stdin.isatty():
                 ans = input(f"Are you sure you want to completely clear target collection '{store.collection_name}'? (yes/no): ").strip().lower()
