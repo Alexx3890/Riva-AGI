@@ -1,130 +1,124 @@
 # RAG Knowledge Subsystem (`rag_knowledge`)
 
-A modular, database-backed, self-contained Retrieval-Augmented Generation (RAG) package. Designed to provide fast factual knowledge retrieval and Google Gemini synthesis for conversational agents, voice assistants, and multi-agent platforms.
+Voice-optimized Retrieval-Augmented Generation (RAG) service powered by **Qdrant Vector Database** and **Google Gemini**.
 
 ---
 
-## Highlights
+## 1. Setup
 
-- **Completely Self-Contained**: Can be run, tested, and imported independently or merged with other systems without impacting other directories.
-- **Database-Backed RAG Storage**: Powered by MongoDB (`riva_knowledge.knowledge_documents`) with weighted full-text search and alias matching.
-- **Dynamic Live Updates**: Add, modify, or delete knowledge documents directly in MongoDB without server restarts or redeployments.
-- **Auto `.env` Discovery**: Automatically detects and loads `.env` from package or workspace roots on import.
-- **Google Gemini Synthesis**: Uses Gemini Flash (`gemini-flash-lite-latest` by default) via standard Python `urllib` with strict grounding prompts to generate concise, 2–3 sentence spoken answers.
-- **Resilient Fallback**: If `GEMINI_API_KEY` is omitted, rate-limited, or unavailable, it immediately returns the factual grounded text directly so conversational pipelines never fail.
-
----
-
-## Directory Structure
-
-```text
-rag_knowledge/
-├── __init__.py                # Package exports (query_rag, KnowledgeRetriever, GeminiRAGClient, RAGService)
-├── __main__.py                # Package entrypoint (python -m rag_knowledge)
-├── cli.py                     # Command-line query tool & inspector
-├── gemini_client.py           # Gemini API synthesis client with standard urllib
-├── retriever.py               # Database-backed search retriever over MongoDB
-├── service.py                 # RAG orchestrator coordinating retrieval & generation
-├── storage/                   # Database storage layer
-│   ├── __init__.py
-│   └── mongo.py               # MongoDB connection pooling & full-text indexing
-├── requirements.txt           # Package requirements
-├── README.md                  # Main documentation
-├── docs/
-│   ├── architecture.md        # Technical architecture details
-│   └── integration_guide.md   # Guide on integrating into any system / voice agent
-└── tests/
-    ├── __init__.py
-    ├── conftest.py            # Hermetic test isolation fixtures
-    ├── test_retriever.py      # Unit tests for retriever
-    ├── test_mongo_storage.py  # Unit tests for MongoDB storage layer
-    ├── test_gemini_client.py  # Unit tests for Gemini API client and fallbacks
-    └── test_service.py        # Unit tests for RAG service coordination
-```
-
----
-
-## Quick Start
-
-### 1. Standalone CLI Usage
-
-Query the knowledge base directly from your terminal:
+Copy `.env.example` to `.env` in the root or package directory:
 
 ```bash
-# Ask a question
-python -m rag_knowledge "Do you know about Alex Doe?"
-
-# List all stored knowledge documents
-python -m rag_knowledge --list
-
-# Query with retrieval match scores
-python -m rag_knowledge "Who is Alex Doe?" -v
+cp rag_knowledge/.env.example rag_knowledge/.env
 ```
-  
-### 2. Python API Usage
 
-Import into any Python application:
+Configure your environment variables in `.env`:
 
+```ini
+# Google Gemini (Separate keys prevent token/quota exhaustion)
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_VISION_API_KEY=your_gemini_vision_api_key_here  # Optional: dedicated key for vision OCR
+GEMINI_TEXT_API_KEY=your_gemini_text_api_key_here      # Optional: dedicated key for answer synthesis
+
+# Qdrant Vector Database
+QDRANT_URL=https://your-cluster-id.us-east-1-1.aws.cloud.qdrant.io
+QDRANT_API_KEY=your_qdrant_api_key_here
+QDRANT_COLLECTION=riva_knowledge
+QDRANT_TIMEOUT=60.0                                    # WAN connection timeout (seconds)
+QDRANT_BATCH_SIZE=50                                   # Upsert chunk size
+
+# Security & Data Integrity
+RAG_ENTITY_SECRET=your_hmac_secret_salt_here           # Salt for hashing student IDs
+LIVE_COLLECTION=riva_knowledge_prod                    # Safeguard: prevents accidental --clear on production
+```
+
+Install requirements:
+```bash
+pip install -r rag_knowledge/requirements.txt
+```
+
+---
+
+## 2. Ingestion (Data Processing & Indexing)
+
+Ingest raw files or entire directories into the vector database using `rag_knowledge.ingestion`:
+
+```bash
+# Ingest with automated PII redaction (recommended for student records)
+python -m rag_knowledge.ingestion --source "rag_knowledge/data/raw/" --redact
+
+# Dry run: parse and inspect documents without uploading to Qdrant
+python -m rag_knowledge.ingestion --source "rag_knowledge/data/raw/" --dry-run
+
+# Opt-in to Google Gemini Cloud Vision for OCR on complex diagrams/scans
+python -m rag_knowledge.ingestion --source "rag_knowledge/data/raw/" --cloud-vision --redact
+
+# Clear target collection (requires confirmation or --yes / -y)
+python -m rag_knowledge.ingestion --clear --yes
+```
+
+### CLI Ingestion Options
+
+| Flag | Description |
+| :--- | :--- |
+| `--source <path>` | Path to a single file or directory of documents to ingest |
+| `--redact` | Automatically redacts detected emails and phone numbers (PRD S4 privacy gate) |
+| `--cloud-vision` | Opt-in to Gemini Cloud Vision for images (default: local OCR only) |
+| `--batch-size <N>` | Points per upsert batch (default: `50`, with automatic sub-chunking on WAN timeout) |
+| `--limit <N>` | Ingest only the first `N` extracted documents |
+| `--dry-run` | Extract, chunk, and preview documents without modifying vector storage |
+| `--clear`, `--delete-all` | Empties the target collection in Qdrant (blocked if matching `LIVE_COLLECTION`) |
+| `--yes`, `-y` | Skips interactive confirmation prompt for `--clear` |
+
+### Supported Data Formats
+
+- **Spreadsheets (`.xlsx`, `.xls`, `.csv`, `.tsv`)**: Merges student master sheets and category rosters with opaque hash joins.
+- **Documents (`.pdf`, `.docx`, `.txt`, `.md`, `.json`)**: Extracts text sections, headings, tables, and lists.
+- **Images (`.png`, `.jpg`, `.jpeg`, `.webp`)**: Local OCR by default; opt-in multimodal Gemini Cloud Vision via `--cloud-vision`.
+
+---
+
+## 3. Querying
+
+### Terminal CLI
+```bash
+# Query with ranked retrieval matches displayed
+python -m rag_knowledge "Tell me about Astitva Gupta"
+
+# Query in quiet mode (returns answer only)
+python -m rag_knowledge "What is the policy for hackathon registration?" -q
+
+# List indexed documents
+python -m rag_knowledge --list
+```
+
+### Python API
 ```python
 import asyncio
 from rag_knowledge import query_rag
 
 async def main():
-    # Asynchronously query the RAG service
-    answer = await query_rag("Who is Alex Doe?")
-    print("Answer:", answer)
+    response = await query_rag("Who won the first year coding competition?")
+    print(response)
 
 asyncio.run(main())
 ```
 
 ---
 
-## Configuration & Environment Variables
+## 4. Security & Architecture Highlights
 
-Add these to your `.env` file or environment:
-
-| Variable | Required | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `MONGODB_URI` | Yes (for DB) | *(None)* | MongoDB Atlas or local connection string (`mongodb+srv://...`). |
-| `MONGODB_DB_NAME` | No | `riva_knowledge` | Target database name. |
-| `MONGODB_COLLECTION` | No | `knowledge_documents` | Target collection name. |
-| `MONGODB_TIMEOUT_MS` | No | `5000` | Connection and socket timeout in milliseconds. |
-| `MONGODB_DNS_SERVERS` | No | `8.8.8.8,1.1.1.1,8.8.4.4` | Fallback public DNS servers for `mongodb+srv://` SRV resolution. |
-| `MONGODB_DNS_FALLBACK` | No | `1` | Set to `0` to disable the DNS fallback override. |
-| `MONGODB_DISABLE_DNS_OVERRIDE` | No | `0` | Set to `1` to disable the DNS fallback override. |
-| `GEMINI_API_KEY` | No (has fallback) | *(None)* | Google AI Studio API key. Sent securely in `x-goog-api-key` header. If unset, returns raw structured facts. |
-| `GEMINI_RAG_MODEL` | No | *(None)* | Specific Gemini model for RAG synthesis. Takes precedence over `GEMINI_MODEL`. |
-| `GEMINI_MODEL` | No | `gemini-flash-lite-latest` | Model ID for RAG response synthesis (`gemini-flash-lite-latest`, `gemini-3-flash-preview`). |
-| `GEMINI_TIMEOUT` | No | `4.0` | API request timeout in seconds (optimized for voice latency). |
-| `RAG_LOAD_CWD_ENV` | No | `false` | Set to `true` to allow auto-loading `.env` from the current working directory. |
+- **Privacy Gate & Entity Joiner**: PII such as contact details (emails, phone numbers) are stripped or hashed via `RAG_ENTITY_SECRET`. Direct unredacted ingestion is blocked by default unless `--redact` is passed.
+- **Quota Separation**: Separate API keys for Vision and Text synthesis avoid starving conversational tokens during large document ingestions.
+- **WAN Resilience**: Adaptive upsert retry logic with automated half-batch sub-chunking prevents socket timeouts against cloud vector instances.
+- **Production Safeguards**: Destructive actions like `--clear` are blocked when pointing at `LIVE_COLLECTION`.
 
 ---
 
-## Adding or Modifying Knowledge
+## 5. Running Tests
 
-Documents are stored in MongoDB collection `knowledge_documents`. Each document follows this format:
-
-```json
-{
-  "_id": "person_or_topic_id",
-  "id": "person_or_topic_id",
-  "title": "Full Name / Title",
-  "aliases": ["alias 1", "alias 2"],
-  "keywords": ["keyword1", "keyword2"],
-  "summary": "Short one-sentence summary.",
-  "content": "Detailed facts and background information to be used as context.",
-  "is_active": true
-}
-```
-
-New or modified documents in MongoDB are immediately queryable without restarting applications.
-
----
-
-## Running Tests
-
-The test suite is fully isolated under `rag_knowledge/tests/`:
+Run the full test suite with pytest:
 
 ```bash
-python -m pytest rag_knowledge/tests/ -v
+pytest rag_knowledge/tests
 ```
