@@ -2,7 +2,7 @@
 Riva-AGI Interactive Chat CLI & Universal Orchestration Testbed
 ===============================================================
 A unified CLI to interact with the Riva-AGI LangGraph Multi-Agent Orchestrator,
-test all autonomous agents, test all registered tools (builtin, system, web, and full browser control),
+test all autonomous agents, test all registered tools (file, system, web),
 and inspect API key rotation, latency, and tool execution traces.
 """
 
@@ -15,7 +15,6 @@ import json
 import threading
 import argparse
 import subprocess
-import importlib.util
 from typing import Optional
 
 # Ensure standard UTF-8 output encoding or fallback safely on Windows consoles
@@ -33,21 +32,11 @@ if WORKSPACE_ROOT not in sys.path:
 from dotenv import load_dotenv
 load_dotenv()
 
+from orchestration import InputData, InputType, AgentResponse, ResponseStatus
 from orchestration.orchestrator.main import create_orchestrator
 from orchestration.orchestrator.registry import registry
 from orchestration.orchestrator.config import key_manager
 from orchestration.tools import tool_registry
-import contextlib
-
-try:
-    from orchestration.tools.policy import ExecutionPolicy, execution_scope
-    from orchestration.tools.browser_service import browser_service
-except ImportError:
-    @contextlib.contextmanager
-    def execution_scope(policy=None):
-        yield
-    ExecutionPolicy = None
-    browser_service = None
 
 
 def initial_state(user_prompt: str, task_id: str = None, session_id: str = None, source: str = "cli") -> dict:
@@ -110,8 +99,6 @@ def print_banner(voice_active: bool = False):
     print("    'agents'       - List all registered agents & capabilities")
     print("    'tools'        - List all registered tools & schemas")
     print("    'tools test'   - Run offline regression tests (no API key needed)")
-    print("    'browser test' - Test browser automation on local fixture pages")
-    print("    'browser close'- Close active browser session")
     print('    tool <name> {"argument": "value"} - Call any registered tool directly')
     print("    'voice'        - Toggle Windows TTS voice readout (ON/OFF)")
     print("    'clear'        - Clear chat history and memory")
@@ -138,21 +125,14 @@ def show_registered_tools():
     print("\n" + "=" * 68)
     print(f"[REGISTERED TOOLS] (Total: {len(tools)})")
     print("=" * 68)
-    categories = {}
     for name, tool_def in tools.items():
-        cat = getattr(tool_def, 'category', 'general')
-        categories.setdefault(cat, []).append((name, tool_def))
-
-    for cat, t_list in categories.items():
-        print(f"\n  Category: [{cat.upper()}] ({len(t_list)} tools)")
-        for name, tool_def in t_list:
-            desc = tool_def.description if hasattr(tool_def, 'description') else "No description"
-            print(f"    * {name}")
-            print(f"      Description: {desc}")
-            if hasattr(tool_def, 'parameters') and tool_def.parameters:
-                props = tool_def.parameters.get("properties", {})
-                req = tool_def.parameters.get("required", [])
-                print(f"      Parameters : {list(props.keys())} (Required: {req})")
+        desc = tool_def.description if hasattr(tool_def, 'description') else "No description"
+        print(f"  * {name}")
+        print(f"    Description: {desc}")
+        if hasattr(tool_def, 'parameters') and tool_def.parameters:
+            props = tool_def.parameters.get("properties", {})
+            req = tool_def.parameters.get("required", [])
+            print(f"    Parameters : {list(props.keys())} (Required: {req})")
         print("-" * 68)
 
 
@@ -169,7 +149,6 @@ def check_system_status():
         ("ORCHESTRATOR", "Orchestrator"),
         ("INTENT_CLASSIFIER", "Intent Classifier"),
         ("CODER", "Coder Agent"),
-        ("BROWSER", "Browser Agent"),
         ("RESEARCHER", "Researcher Agent"),
         ("WRITER", "Writer Agent"),
         ("REASONER", "Reasoner Agent"),
@@ -209,7 +188,6 @@ def on_progress_tracker(node_name: str, node_update: dict, state: dict, start_ti
         "planner": "📋 [PLANNER]",
         "executor": "⚙️  [EXECUTOR]",
         "coder": "💻 [CODER]",
-        "browser": "🌐 [BROWSER]",
         "researcher": "🔍 [RESEARCHER]",
         "writer": "✍️  [WRITER]",
         "reasoner": "🤔 [REASONER]",
@@ -274,21 +252,19 @@ def execute_prompt(user_input: str, conversation_history: list, session_id: str 
     all_workflow_tool_calls = []
 
     current_state = initial_state(effective_prompt, task_id=task_id, session_id=session_id)
-    policy = ExecutionPolicy(session_id=session_id)
     try:
-        with execution_scope(policy):
-            for step in app.stream(current_state, config={'recursion_limit': 40}):
-                for node_name, node_update in step.items():
-                    if isinstance(node_update, dict):
-                        current_state.update(node_update)
-                        if node_update.get('response_payload'):
-                            resp = node_update['response_payload']
-                            final_payload = resp
-                            final_agent = resp.agent_id
-                            if hasattr(resp, 'tool_calls') and resp.tool_calls:
-                                for tc in resp.tool_calls:
-                                    all_workflow_tool_calls.append((node_name, tc))
-                        on_progress_tracker(node_name, node_update, current_state, start_time, step_timer)
+        for step in app.stream(current_state, config={'recursion_limit': 40}):
+            for node_name, node_update in step.items():
+                if isinstance(node_update, dict):
+                    current_state.update(node_update)
+                    if node_update.get('response_payload'):
+                        resp = node_update['response_payload']
+                        final_payload = resp
+                        final_agent = resp.agent_id
+                        if hasattr(resp, 'tool_calls') and resp.tool_calls:
+                            for tc in resp.tool_calls:
+                                all_workflow_tool_calls.append((node_name, tc))
+                    on_progress_tracker(node_name, node_update, current_state, start_time, step_timer)
     except KeyboardInterrupt:
         print("\n[Execution interrupted by user]")
         return None
@@ -324,15 +300,12 @@ def execute_prompt(user_input: str, conversation_history: list, session_id: str 
     return final_payload if return_response else output_text
 
 
-def run_tools_self_test(browser: bool = False):
-    if browser and importlib.util.find_spec('playwright') is None:
-        print('Browser tests require Playwright and Chromium. Run: pip install playwright && python -m playwright install chromium')
-        return 2
-    tests = ['tests/unit', 'tests/integration/test_orchestrator.py']
+def run_tools_self_test():
+    tests = ['tests/unit/test_file_tools.py', 'tests/unit/test_system_tools.py', 'tests/unit/test_web_tools.py', 'tests/integration/test_orchestrator.py']
     return subprocess.run([sys.executable, '-m', 'pytest', '-v', *tests], cwd=WORKSPACE_ROOT).returncode
 
 
-def execute_direct_tool(command: str, session_id: str = "cli"):
+def execute_direct_tool(command: str):
     parts = command.strip().split(' ', 1)
     name = parts[0]
     raw = parts[1].strip() if len(parts) > 1 else '{}'
@@ -348,8 +321,7 @@ def execute_direct_tool(command: str, session_id: str = "cli"):
     
     print(f"\n[Direct Tool Execution] -> {name}")
     print(f"Arguments: {json.dumps(arguments, indent=2)}")
-    with execution_scope(ExecutionPolicy(session_id=session_id)):
-        result = tool_registry.execute(name, **arguments)
+    result = tool_registry.execute(name, **arguments)
     print(f"Result:\n{result}")
     return result
 
@@ -385,9 +357,7 @@ def main():
 
             if cmd_lower in ["clear", "reset"]:
                 conversation_history.clear()
-                with execution_scope(ExecutionPolicy(session_id=session_id)):
-                    browser_service.call('close')
-                print("[*] Conversation history cleared and browser session closed.")
+                print("[*] Conversation history cleared.")
                 continue
 
             if cmd_lower in ["status", "pool"]:
@@ -406,10 +376,6 @@ def main():
                 run_tools_self_test()
                 continue
 
-            if cmd_lower in ["browser close", "close browser"]:
-                execute_direct_tool('browser_close {}', session_id=session_id)
-                continue
-
             if cmd_lower in ["voice", "tts"]:
                 voice_mode = not voice_mode
                 status_str = "ENABLED" if voice_mode else "DISABLED"
@@ -420,7 +386,7 @@ def main():
 
             # Direct tool invocation: tool <tool_name> <params...>
             if user_input.startswith("tool "):
-                execute_direct_tool(user_input[5:], session_id=session_id)
+                execute_direct_tool(user_input[5:])
                 continue
 
             # Execute via LangGraph Orchestrator
@@ -443,7 +409,4 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(main())
-    finally:
-        browser_service.shutdown()
+    raise SystemExit(main())
