@@ -30,6 +30,10 @@ QDRANT_BATCH_SIZE=50                                   # Upsert chunk size
 # Security & Data Integrity
 RAG_ENTITY_SECRET=your_hmac_secret_salt_here           # Salt for hashing student IDs
 LIVE_COLLECTION=riva_knowledge_prod                    # Safeguard: prevents accidental --clear on production
+
+# Image OCR & Multimodal Vision
+ALLOW_CLOUD_VISION=true                                # Opt-in to Gemini Cloud Vision OCR (or pass --cloud-vision)
+# ALLOW_CLOUD_VISION_ALLOWLIST=raw/scans,diagrams      # Optional: whitelist specific paths for cloud vision
 ```
 
 Install requirements:
@@ -63,7 +67,7 @@ python -m rag_knowledge.ingestion --clear --yes
 | :--- | :--- |
 | `--source <path>` | Path to a single file or directory of documents to ingest |
 | `--redact` | Automatically redacts detected emails and phone numbers (PRD S4 privacy gate) |
-| `--cloud-vision` | Opt-in to Gemini Cloud Vision for images (default: local OCR only) |
+| `--cloud-vision` | Opt-in to Gemini Cloud Vision for images (or set `ALLOW_CLOUD_VISION=true` in `.env`) |
 | `--batch-size <N>` | Points per upsert batch (default: `50`, with automatic sub-chunking on WAN timeout) |
 | `--limit <N>` | Ingest only the first `N` extracted documents |
 | `--dry-run` | Extract, chunk, and preview documents without modifying vector storage |
@@ -74,7 +78,7 @@ python -m rag_knowledge.ingestion --clear --yes
 
 - **Spreadsheets (`.xlsx`, `.xls`, `.csv`, `.tsv`)**: Merges student master sheets and category rosters with opaque hash joins.
 - **Documents (`.pdf`, `.docx`, `.txt`, `.md`, `.json`)**: Extracts text sections, headings, tables, and lists.
-- **Images (`.png`, `.jpg`, `.jpeg`, `.webp`)**: Local OCR by default; opt-in multimodal Gemini Cloud Vision via `--cloud-vision`.
+- **Images (`.png`, `.jpg`, `.jpeg`, `.webp`)**: Local Tesseract OCR (if installed in system PATH) or multimodal Gemini Cloud Vision (enabled via `--cloud-vision` CLI flag or `ALLOW_CLOUD_VISION=true` in `.env`).
 
 ---
 
