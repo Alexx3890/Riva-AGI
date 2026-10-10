@@ -32,6 +32,7 @@ venv.bak/
 htmlcov/
 .tox/
 .nox/
+chat.py
 
 # Logs & Databases
 *.log
@@ -49,3 +50,10 @@ htmlcov/
 # Operating System
 .DS_Store
 Thumbs.db
+
+# RAG Knowledge Data Protection
+rag_knowledge/data/raw/*
+!rag_knowledge/data/raw/.gitkeep
+rag_knowledge/data/processed/
+data/
+!rag_knowledge/.env.example
