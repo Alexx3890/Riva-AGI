@@ -138,23 +138,28 @@ async def fetch_news_summary(query: str) -> str:
         return f"Could not retrieve recent news for '{clean_query}'."
 
 
-# Ensure workspace root is available for imports
-import sys
-from pathlib import Path
-_WORKSPACE_ROOT = str(Path(__file__).resolve().parent.parent.parent.parent)
-if _WORKSPACE_ROOT not in sys.path:
-    sys.path.insert(0, _WORKSPACE_ROOT)
-
-from orchestration.tools import tool_registry
-from orchestration.orchestrator.main import run_orchestrator
-
 # Tool Declarations
+KNOWLEDGE_TOOL_DECLARATION = types.FunctionDeclaration(
+    name="query_knowledge_base",
+    description=(
+        "PRIMARY KNOWLEDGE RETRIEVAL TOOL (HIGHEST PRIORITY): Search and retrieve facts from the internal RAG knowledge base. "
+        "ALWAYS call this tool first for questions regarding K.I.E.T, college events, departments, clubs, recruitment processes, "
+        "campus policies, academic curriculum, syllabi, guidelines, faculty, or uploaded internal documents (PDFs, Word docs). "
+        "Always give preference to this tool over external news search."
+    ),
+    parameters=types.Schema(
+        type="OBJECT",
+        properties={"query": types.Schema(type="STRING", description="Detailed question or search query for the knowledge base")},
+        required=["query"],
+    ),
+)
+
 NEWS_TOOL_DECLARATION = types.FunctionDeclaration(
     name="get_latest_news",
     description=(
-        "Search real-time web news, current events, recent developments, facts, or live updates on any topic. "
-        "Call this tool whenever the user asks about current affairs, breaking news, recent events, "
-        "people, organizations, technology, culture, weather, statistics, or any topic requiring fresh or up-to-date information."
+        "EXTERNAL WEB NEWS TOOL (FALLBACK / GLOBAL ONLY): Search public global web news and external current events. "
+        "Only call this tool for general world affairs, global breaking news, or topics completely outside the institution and internal knowledge base. "
+        "DO NOT use this tool for questions about the college, campus, recruitment, policies, or internal documents."
     ),
     parameters=types.Schema(
         type="OBJECT",
@@ -163,131 +168,40 @@ NEWS_TOOL_DECLARATION = types.FunctionDeclaration(
     ),
 )
 
-ORCHESTRATOR_TOOL_DECLARATION = types.FunctionDeclaration(
-    name="ask_orchestrator",
+ORCHESTRATION_TOOL_DECLARATION = types.FunctionDeclaration(
+    name="run_orchestration_task",
     description=(
-        "Delegate complex, multi-step, software development, coding, deep research, or multi-agent tasks to the Riva-AGI Orchestrator. "
-        "Use this whenever the user wants to build a project, write multi-file code, perform deep reasoning, or run complex workflows."
+        "Execute an autonomous multi-agent task via Riva-AGI's orchestration pipeline. "
+        "Use this tool whenever the user asks to write code, debug software, inspect files or directories, "
+        "create or edit files, execute system commands, or solve complex technical problems."
     ),
     parameters=types.Schema(
         type="OBJECT",
-        properties={
-            "task": types.Schema(type="STRING", description="Detailed description of the task or prompt for the multi-agent orchestrator"),
-        },
+        properties={"task": types.Schema(type="STRING", description="Detailed description of the autonomous task to perform")},
         required=["task"],
     ),
 )
 
-EXECUTE_COMMAND_DECLARATION = types.FunctionDeclaration(
-    name="execute_command",
-    description="Executes a system terminal or shell command safely on the host computer (Windows/Linux/Mac).",
+OPEN_BROWSER_TOOL_DECLARATION = types.FunctionDeclaration(
+    name="open_website_in_browser",
+    description="Open a specified website or web page in Google Chrome or the default web browser.",
     parameters=types.Schema(
         type="OBJECT",
         properties={
-            "command": types.Schema(type="STRING", description="The command line string to execute in shell"),
-        },
-        required=["command"],
-    ),
-)
-
-READ_FILE_DECLARATION = types.FunctionDeclaration(
-    name="read_file",
-    description="Reads the text content of a file from the filesystem.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "file_path": types.Schema(type="STRING", description="Path to the file to read"),
-        },
-        required=["file_path"],
-    ),
-)
-
-WRITE_FILE_DECLARATION = types.FunctionDeclaration(
-    name="write_file",
-    description="Creates a new file or overwrites an existing file with the provided content.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "file_path": types.Schema(type="STRING", description="Destination path for the file"),
-            "content": types.Schema(type="STRING", description="Text content to write to the file"),
-        },
-        required=["file_path", "content"],
-    ),
-)
-
-EDIT_FILE_DECLARATION = types.FunctionDeclaration(
-    name="edit_file",
-    description="Edits an existing file by replacing target text with replacement text.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "file_path": types.Schema(type="STRING", description="Path to the file to edit"),
-            "target_text": types.Schema(type="STRING", description="Exact text block to replace"),
-            "replacement_text": types.Schema(type="STRING", description="New replacement text block"),
-        },
-        required=["file_path", "target_text", "replacement_text"],
-    ),
-)
-
-LIST_DIRECTORY_DECLARATION = types.FunctionDeclaration(
-    name="list_directory",
-    description="Lists files and subdirectories in a directory path.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "dir_path": types.Schema(type="STRING", description="Directory path to inspect (default '.')"),
-        },
-    ),
-)
-
-GET_SYSTEM_INFO_DECLARATION = types.FunctionDeclaration(
-    name="get_system_info",
-    description="Retrieves information about host operating system, release version, Python runtime, and working directory.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={},
-    ),
-)
-
-WEB_SEARCH_DECLARATION = types.FunctionDeclaration(
-    name="web_search",
-    description="Performs an instant web search to find current information and URLs on any topic.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "query": types.Schema(type="STRING", description="Search query keywords"),
-        },
-        required=["query"],
-    ),
-)
-
-FETCH_URL_CONTENT_DECLARATION = types.FunctionDeclaration(
-    name="fetch_url_content",
-    description="Fetches and extracts clean readable text from a web page URL.",
-    parameters=types.Schema(
-        type="OBJECT",
-        properties={
-            "url": types.Schema(type="STRING", description="URL to fetch content from"),
+            "url": types.Schema(type="STRING", description="The complete web address (URL) to open, e.g. https://www.google.com"),
+            "browser": types.Schema(type="STRING", description="Browser to use: 'chrome' or 'default' (defaults to 'chrome')")
         },
         required=["url"],
     ),
 )
 
 DEFAULT_TOOLS: List[types.Tool] = [
-    types.Tool(
-        function_declarations=[
-            NEWS_TOOL_DECLARATION,
-            ORCHESTRATOR_TOOL_DECLARATION,
-            EXECUTE_COMMAND_DECLARATION,
-            READ_FILE_DECLARATION,
-            WRITE_FILE_DECLARATION,
-            EDIT_FILE_DECLARATION,
-            LIST_DIRECTORY_DECLARATION,
-            GET_SYSTEM_INFO_DECLARATION,
-            WEB_SEARCH_DECLARATION,
-            FETCH_URL_CONTENT_DECLARATION,
-        ]
-    )
+    types.Tool(function_declarations=[
+        KNOWLEDGE_TOOL_DECLARATION,
+        NEWS_TOOL_DECLARATION,
+        ORCHESTRATION_TOOL_DECLARATION,
+        OPEN_BROWSER_TOOL_DECLARATION,
+    ])
 ]
 
 
@@ -296,38 +210,96 @@ async def _handle_get_latest_news(args: Dict[str, Any]) -> str:
     return await fetch_news_summary(query)
 
 
-async def _handle_ask_orchestrator(args: Dict[str, Any]) -> str:
-    task = str((args or {}).get("task", ""))
+async def _handle_query_knowledge_base(args: Dict[str, Any]) -> str:
+    query = str((args or {}).get("query", "")).strip()
+    if not query:
+        return "Please provide a specific query to search in the knowledge base."
+    try:
+        from rag_knowledge.service import query_rag
+        return await query_rag(query)
+    except Exception as e:
+        logger.error(f"Error querying RAG knowledge base for '{query}': {e}", exc_info=True)
+        return f"Error retrieving information from knowledge base: {str(e)}"
+
+
+async def execute_orchestration_task(task: str) -> str:
+    """Dispatches a task to the RIVA LangGraph multi-agent orchestrator."""
+    import uuid
     loop = asyncio.get_running_loop()
-    def _run():
-        res = run_orchestrator(task)
-        if res.get("response_payload") and hasattr(res["response_payload"], "content"):
-            return res["response_payload"].content
-        return "Orchestrator completed task."
-    return await loop.run_in_executor(None, _run)
+
+    def _run() -> str:
+        try:
+            from orchestration.orchestrator.main import create_orchestrator
+            from orchestration import InputData, InputType
+
+            app = create_orchestrator()
+            task_id = f"voice-{uuid.uuid4().hex[:8]}"
+            payload = InputData(input_type=InputType.TEXT, text_content=task, metadata={"source": "voice"})
+            state = {
+                "task_payload": payload,
+                "agent": "fallback",
+                "response_payload": None,
+                "task_id": task_id,
+                "session_id": f"voice-sess-{uuid.uuid4().hex[:6]}",
+                "source": "voice",
+                "complexity": "simple",
+                "routing_decision": "fallback",
+                "plan": [],
+                "current_step": 0,
+                "completed_steps": [],
+                "feedback": "",
+                "intent": "unknown",
+                "confidence": 0.0,
+            }
+            final_res = None
+            for step in app.stream(state):
+                for node_name, node_update in step.items():
+                    if isinstance(node_update, dict):
+                        if "response_payload" in node_update and node_update["response_payload"]:
+                            final_res = node_update["response_payload"]
+            
+            if final_res and hasattr(final_res, "content") and final_res.content:
+                return str(final_res.content)
+            return "Orchestration task completed successfully."
+        except Exception as e:
+            logger.error(f"Error in execute_orchestration_task: {e}", exc_info=True)
+            return f"Error executing task: {str(e)}"
+
+    res = await loop.run_in_executor(None, _run)
+    return res[:1500]
 
 
-def _make_tool_executor(tool_name: str):
-    async def _executor(args: Dict[str, Any]) -> str:
-        loop = asyncio.get_running_loop()
-        def _call():
-            return tool_registry.execute(tool_name, **(args or {}))
-        return await loop.run_in_executor(None, _call)
-    return _executor
+async def _handle_run_orchestration_task(args: Dict[str, Any]) -> str:
+    task = str((args or {}).get("task", "")).strip()
+    if not task:
+        return "Error: No task description provided."
+    return await execute_orchestration_task(task)
+
+
+async def _handle_open_website_in_browser(args: Dict[str, Any]) -> str:
+    url = str((args or {}).get("url", "")).strip()
+    browser = str((args or {}).get("browser", "chrome")).strip()
+    if not url:
+        return "Error: No URL provided."
+    
+    loop = asyncio.get_running_loop()
+    try:
+        from orchestration.tools import tool_registry
+        return await loop.run_in_executor(
+            None, 
+            lambda: tool_registry.execute("open_browser", url=url, browser=browser)
+        )
+    except Exception as e:
+        logger.error(f"Error opening browser for '{url}': {e}")
+        return f"Error opening browser: {str(e)}"
 
 
 # Extensible Tool Handler Registry
 TOOL_REGISTRY: Dict[str, Callable[[Dict[str, Any]], Awaitable[str]]] = {
     "get_latest_news": _handle_get_latest_news,
-    "ask_orchestrator": _handle_ask_orchestrator,
-    "execute_command": _make_tool_executor("execute_command"),
-    "read_file": _make_tool_executor("read_file"),
-    "write_file": _make_tool_executor("write_file"),
-    "edit_file": _make_tool_executor("edit_file"),
-    "list_directory": _make_tool_executor("list_directory"),
-    "get_system_info": _make_tool_executor("get_system_info"),
-    "web_search": _make_tool_executor("web_search"),
-    "fetch_url_content": _make_tool_executor("fetch_url_content"),
+    "run_orchestration_task": _handle_run_orchestration_task,
+    "open_website_in_browser": _handle_open_website_in_browser,
+    "query_knowledge_base": _handle_query_knowledge_base,
 }
 
 
@@ -346,7 +318,7 @@ async def dispatch_tool_call(name: str, args: Dict[str, Any]) -> str:
         logger.warning(f"No handler registered for tool call '{name}'")
         return f"Tool '{name}' is not supported."
 
-    logger.info(f"Executing voice tool call '{name}' with args={args}")
+    logger.info(f"Executing tool call '{name}' with args={args}")
     try:
         return await handler(args)
     except Exception as e:

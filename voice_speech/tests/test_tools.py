@@ -7,6 +7,7 @@ from voice_speech.engine.gemini.tools import (
     fetch_news_summary,
     TOOL_REGISTRY,
     NEWS_TOOL_DECLARATION,
+    KNOWLEDGE_TOOL_DECLARATION,
 )
 
 
@@ -14,6 +15,10 @@ def test_tool_declaration():
     assert NEWS_TOOL_DECLARATION.name == "get_latest_news"
     assert "query" in NEWS_TOOL_DECLARATION.parameters.properties
     assert "query" in NEWS_TOOL_DECLARATION.parameters.required
+
+    assert KNOWLEDGE_TOOL_DECLARATION.name == "query_knowledge_base"
+    assert "query" in KNOWLEDGE_TOOL_DECLARATION.parameters.properties
+    assert "query" in KNOWLEDGE_TOOL_DECLARATION.parameters.required
 
 
 @pytest.mark.anyio
@@ -84,3 +89,30 @@ async def test_custom_tool_registration():
         assert result == "Echo: hello"
     finally:
         TOOL_REGISTRY.pop("test_echo", None)
+
+
+@pytest.mark.anyio
+async def test_orchestration_tool_dispatch():
+    with patch("voice_speech.engine.gemini.tools.execute_orchestration_task") as mock_exec:
+        mock_exec.return_value = "Task completed successfully by Coder Agent."
+        result = await dispatch_tool_call("run_orchestration_task", {"task": "write hello world"})
+        assert "Coder Agent" in result
+        mock_exec.assert_called_once_with("write hello world")
+
+
+@pytest.mark.anyio
+async def test_open_browser_tool_dispatch():
+    with patch("orchestration.tools.tool_registry.execute") as mock_tool:
+        mock_tool.return_value = "Successfully opened 'https://example.com' in Google Chrome."
+        result = await dispatch_tool_call("open_website_in_browser", {"url": "https://example.com", "browser": "chrome"})
+        assert "Successfully opened" in result
+
+
+@pytest.mark.anyio
+async def test_query_knowledge_base_dispatch():
+    with patch("rag_knowledge.service.query_rag") as mock_rag:
+        mock_rag.return_value = "The recruitment drive begins on Monday in Hall 4."
+        result = await dispatch_tool_call("query_knowledge_base", {"query": "recruitment dates"})
+        assert "recruitment drive begins on Monday" in result
+        mock_rag.assert_called_once_with("recruitment dates")
+
